@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pachaax Expenses</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff7ed;min-height:100vh}
+.header{background:linear-gradient(90deg,#d97706,#ea580c);color:white;padding:16px;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:22px;font-weight:900}
+.header p{font-size:12px;color:#fef3c7;margin-top:2px}
+.sync-status{font-size:11px;color:#fef3c7}
+.tabs{display:flex;background:white;box-shadow:0 2px 4px rgba(0,0,0,0.1);position:sticky;top:0;z-index:100}
+.tab{flex:1;padding:12px 4px;font-size:11px;font-weight:700;text-transform:uppercase;background:none;border:none;cursor:pointer;color:#6b7280;border-bottom:3px solid transparent;transition:all 0.2s}
+.tab.active{color:#92400e;background:#fef3c7;border-bottom:3px solid #d97706}
+.content{max-width:600px;margin:0 auto;padding:16px}
+.card{background:white;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:2px solid #fed7aa}
+.card h3{font-size:16px;font-weight:900;color:#1f2937}
+.card .meta{font-size:12px;color:#6b7280;margin-top:2px}
+.amount{font-size:22px;font-weight:900;color:#d97706}
+.row{display:flex;justify-content:space-between;align-items:flex-start}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #f3f4f6}
+.tag{background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.btn{padding:10px 18px;border-radius:12px;font-weight:700;font-size:13px;cursor:pointer;border:none;transition:all 0.2s}
+.btn-primary{background:linear-gradient(90deg,#d97706,#ea580c);color:white;box-shadow:0 2px 8px rgba(217,119,6,0.4)}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+.btn-secondary{background:#e5e7eb;color:#374151}
+.btn-red{background:#ef4444;color:white}
+.btn-green{background:#16a34a;color:white}
+.btn-purple{background:linear-gradient(90deg,#7c3aed,#4f46e5);color:white}
+.btn-sm{padding:8px 12px;font-size:12px;border-radius:8px}
+.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.section-header h2{font-size:20px;font-weight:900;color:#1f2937}
+.empty{background:white;border-radius:16px;padding:40px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+.empty p{color:#6b7280;font-size:15px;margin-bottom:16px}
+.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#fbbf24,#f97316);color:white;font-size:18px;font-weight:900;display:flex;align-items:center;justify-content:center}
+.balance-pos{color:#16a34a;font-weight:700;font-size:13px}
+.balance-neg{color:#ef4444;font-weight:700;font-size:13px}
+.balance-zero{color:#6b7280;font-weight:700;font-size:13px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:999}
+.modal{background:white;border-radius:20px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.modal h3{font-size:20px;font-weight:900;margin-bottom:16px;color:#1f2937}
+input,select{width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:14px;margin-bottom:10px;outline:none;font-family:inherit}
+input:focus,select:focus{border-color:#d97706}
+.modal-btns{display:flex;gap:10px;margin-top:6px}
+.modal-btns .btn{flex:1;padding:12px}
+.settle-card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.08)}
+.settle-card.paid{background:#f3f4f6;opacity:0.6}
+.settle-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.settle-names{font-weight:700;font-size:14px;color:#1f2937}
+.settle-amount{font-weight:900;font-size:18px;color:#16a34a}
+.settle-btns{display:flex;gap:8px}
+.settle-btns a,.settle-btns button{flex:1;text-align:center;text-decoration:none}
+.balance-table{background:white;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.08)}
+.balance-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f3f4f6}
+.balance-row:last-child{border:none}
+.thailand-card{background:linear-gradient(135deg,#eff6ff,#f5f3ff);border-radius:16px;padding:20px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:2px solid #ddd6fe}
+.thailand-card h3{font-size:16px;font-weight:900;margin-bottom:12px;color:#1f2937}
+.checklist label{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer;font-size:14px;margin-bottom:4px}
+.checklist label:hover{background:#f0fdf4}
+.checklist input[type=checkbox]{width:18px;height:18px;flex-shrink:0}
+.footer{position:fixed;bottom:0;left:0;right:0;background:#78350f;color:#fef3c7;padding:8px;text-align:center;font-size:11px}
+.delete-btn{background:none;border:none;cursor:pointer;color:#ef4444;padding:4px;border-radius:6px;font-size:18px;line-height:1}
+.refresh-btn{background:#b45309;color:white;border:none;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
+.green-box{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:16px;padding:16px;border:2px solid #86efac}
+.green-box h3{font-size:15px;font-weight:900;color:#14532d;margin-bottom:12px;text-transform:uppercase}
+.loading{display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:8px}
+.loading h2{color:#d97706;font-size:20px;font-weight:700}
+.loading p{color:#6b7280;font-size:14px}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ============ CONFIG ============
+const BIN_ID = '679275f4acd3cb34a8c73d4e';
+const API_KEY = '$2a$10$VxqPFi1LvXmGEGYHLYJ8Ju9rZJYB3.EXKXkOBM.r8qPFy1vPQXpEq';
+const API = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+// ============ STATE ============
+let state = {
+    tab: 'expenses',
+    friends: [],
+    expenses: [],
+    settlements: [],
+    loading: true,
+    syncing: false,
+    lastSync: null,
+    showAddFriend: false,
+    showAddExpense: false,
+    newFriendName: '',
+    expDesc: '',
+    expAmount: '',
+    expPayer: ''
+};
+
+// ============ API ============
+async function loadData() {
+    try {
+        const res = await fetch(API + '/latest', {
+            headers: {'X-Master-Key': API_KEY}
+        });
+        if (res.ok) {
+            const data = await res.json();
+            state.friends = data.record.friends || [];
+            state.expenses = data.record.expenses || [];
+            state.settlements = data.record.settlements || [];
+            state.lastSync = new Date().toLocaleTimeString();
+        }
+    } catch(e) {
+        console.error(e);
+    }
+    state.loading = false;
+    render();
+}
+
+async function saveData() {
+    state.syncing = true;
+    render();
+    try {
+        await fetch(API, {
+            method: 'PUT',
+            headers: {'Content-Type':'application/json','X-Master-Key': API_KEY},
+            body: JSON.stringify({
+                friends: state.friends,
+                expenses: state.expenses,
+                settlements: state.settlements
+            })
+        });
+        state.lastSync = new Date().toLocaleTimeString();
+    } catch(e) {
+        alert('Sync failed. Check internet connection.');
+    }
+    state.syncing = false;
+    render();
+}
+
+// ============ LOGIC ============
+function getBalances() {
+    const bal = {};
+    state.friends.forEach(f => bal[f.id] = 0);
+    state.expenses.forEach(e => {
+        bal[e.paidBy] += e.amount;
+        Object.entries(e.splitAmong).forEach(([id, amt]) => bal[id] -= amt);
+    });
+    return bal;
+}
+
+function getSettlements() {
+    const bal = getBalances();
+    const debtors = [], creditors = [], result = [];
+    Object.entries(bal).forEach(([id, b]) => {
+        if (b < -0.01) debtors.push({id, amt: -b});
+        else if (b > 0.01) creditors.push({id, amt: b});
+    });
+    let i = 0, j = 0;
+    while (i < debtors.length && j < creditors.length) {
+        const d = debtors[i], c = creditors[j];
+        const amt = Math.min(d.amt, c.amt);
+        const key = `${d.id}-${c.id}`;
+        result.push({from: d.id, to: c.id, amount: amt, key, isPaid: state.settlements.includes(key)});
+        d.amt -= amt; c.amt -= amt;
+        if (d.amt < 0.01) i++;
+        if (c.amt < 0.01) j++;
+    }
+    return result;
+}
+
+function getName(id) {
+    return (state.friends.find(f => f.id === id) || {name:'?'}).name;
+}
+
+function upiLink(name, amt) {
+    return `upi://pay?pn=${encodeURIComponent(name)}&am=${Math.round(amt)}&cu=INR&tn=Pachaax`;
+}
+
+// ============ ACTIONS ============
+async function addFriend() {
+    const name = state.newFriendName.trim();
+    if (!name) return;
+    state.friends.push({id: Date.now().toString(), name});
+    state.newFriendName = '';
+    state.showAddFriend = false;
+    await saveData();
+}
+
+async function addExpense() {
+    const amt = parseFloat(state.expAmount);
+    if (!state.expDesc.trim() || isNaN(amt) || amt <= 0 || !state.expPayer) return;
+    const splitAmong = {};
+    const per = amt / state.friends.length;
+    state.friends.forEach(f => splitAmong[f.id] = per);
+    state.expenses.push({
+        id: Date.now().toString(),
+        description: state.expDesc.trim(),
+        amount: amt,
+        paidBy: state.expPayer,
+        splitAmong,
+        date: new Date().toISOString()
+    });
+    state.expDesc = ''; state.expAmount = ''; state.expPayer = '';
+    state.showAddExpense = false;
+    await saveData();
+}
+
+async function deleteExpense(id) {
+    if (!confirm('Delete this expense?')) return;
+    state.expenses = state.expenses.filter(e => e.id !== id);
+    await saveData();
+}
+
+async function markPaid(key, paid) {
+    if (paid) state.settlements.push(key);
+    else state.settlements = state.settlements.filter(s => s !== key);
+    await saveData();
+}
+
+async function resetAll() {
+    if (!confirm('⚠️ Delete ALL data for everyone? Cannot be undone!')) return;
+    state.friends = []; state.expenses = []; state.settlements = [];
+    await saveData();
+}
+
+// ============ RENDER ============
+function render() {
+    document.getElementById('app').innerHTML = buildHTML();
+    bindEvents();
+}
+
+function buildHTML() {
+    if (state.loading) {
+        return `<div class="loading"><h2>Loading Pachaax...</h2><p>☁️ Syncing data</p></div>`;
+    }
+
+    const bal = getBalances();
+    const settlements = getSettlements();
+
+    let content = '';
+
+    if (state.tab === 'expenses') {
+        content = buildExpenses();
+    } else if (state.tab === 'friends') {
+        content = buildFriends(bal);
+    } else if (state.tab === 'settle') {
+        content = buildSettle(bal, settlements);
+    } else if (state.tab === 'thailand') {
+        content = buildThailand();
+    }
+
+    const modal = state.showAddFriend ? buildFriendModal() :
+                  state.showAddExpense ? buildExpenseModal() : '';
+
+    return `
+    <div class="header">
+        <div>
+            <h1>💰 Pachaax Expenses</h1>
+            <p>${state.syncing ? '☁️ Syncing...' : state.lastSync ? '✅ Synced ' + state.lastSync : 'Shared tracker - real-time sync!'}</p>
+        </div>
+        <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+    </div>
+
+    <div class="tabs">
+        <button class="tab ${state.tab==='expenses'?'active':''}" onclick="setTab('expenses')">Expenses</button>
+        <button class="tab ${state.tab==='friends'?'active':''}" onclick="setTab('friends')">Friends (${state.friends.length})</button>
+        <button class="tab ${state.tab==='settle'?'active':''}" onclick="setTab('settle')">Settle Up</button>
+        <button class="tab ${state.tab==='thailand'?'active':''}" onclick="setTab('thailand')">Ravi's Thai</button>
+    </div>
+
+    <div class="content">${content}</div>
+
+    ${modal}
+
+    <div class="footer">💡 All data syncs in real-time across everyone! Share this link with your group.</div>
+    `;
+}
+
+function buildExpenses() {
+    let html = `
+    <div class="section-header">
+        <h2>All Expenses</h2>
+        <button class="btn btn-primary" onclick="state.showAddExpense=true;render()" ${!state.friends.length?'disabled':''}>+ Add Expense</button>
+    </div>`;
+
+    if (!state.friends.length) {
+        html += `<div class="empty"><p>👥 Add friends first to track expenses!</p>
+        <button class="btn btn-primary" onclick="setTab('friends')">Go to Friends</button></div>`;
+    } else if (!state.expenses.length) {
+        html += `<div class="empty"><p>💸 No expenses yet. Add one!</p></div>`;
+    } else {
+        state.expenses.map(e => {
+            const tags = Object.entries(e.splitAmong).map(([id, amt]) =>
+                `<span class="tag">${getName(id)}: ₹${Math.round(amt)}</span>`).join('');
+            html += `
+            <div class="card">
+                <div class="row">
+                    <div>
+                        <h3>${e.description}</h3>
+                        <div class="meta">Paid by <strong>${getName(e.paidBy)}</strong></div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <div class="amount">₹${Math.round(e.amount)}</div>
+                        <button class="delete-btn" onclick="deleteExpense('${e.id}')">✕</button>
+                    </div>
+                </div>
+                <div class="tags">${tags}</div>
+            </div>`;
+        }).join('');
+    }
+    return html;
+}
+
+function buildFriends(bal) {
+    let html = `
+    <div class="section-header">
+        <h2>Your Group</h2>
+        <button class="btn btn-primary" onclick="state.showAddFriend=true;render()">+ Add Friend</button>
+    </div>`;
+
+    if (!state.friends.length) {
+        html += `<div class="empty"><p>👥 Add your travel buddies to start!</p></div>`;
+    }
+
+    state.friends.forEach(f => {
+        const b = bal[f.id] || 0;
+        const bClass = b > 0.01 ? 'balance-pos' : b < -0.01 ? 'balance-neg' : 'balance-zero';
+        const bText = b > 0.01 ? `Gets back ₹${Math.round(b)}` : b < -0.01 ? `Owes ₹${Math.round(-b)}` : 'All settled ✓';
+        html += `
+        <div class="card" style="display:flex;align-items:center;gap:12px">
+            <div class="avatar">${f.name[0].toUpperCase()}</div>
+            <div>
+                <div style="font-weight:900;font-size:16px">${f.name}</div>
+                <div class="${bClass}">${bText}</div>
+            </div>
+        </div>`;
+    });
+
+    html += `<div style="text-align:center;margin-top:16px">
+        <button class="btn btn-red btn-sm" onclick="resetAll()">🗑️ Reset All Data</button>
+    </div>`;
+
+    return html;
+}
+
+function buildSettle(bal, settlements) {
+    if (!state.friends.length) {
+        return `<div class="empty"><p>Add friends first!</p></div>`;
+    }
+    if (!state.expenses.length) {
+        return `<div class="empty"><p>No expenses to settle yet!</p></div>`;
+    }
+
+    let html = `<div class="balance-table"><h3 style="font-weight:900;font-size:16px;margin-bottom:12px">Current Balances</h3>`;
+    state.friends.forEach(f => {
+        const b = bal[f.id] || 0;
+        const bClass = b > 0.01 ? 'balance-pos' : b < -0.01 ? 'balance-neg' : 'balance-zero';
+        const bText = b > 0.01 ? `+₹${Math.round(b)}` : b < -0.01 ? `-₹${Math.round(-b)}` : '₹0';
+        html += `<div class="balance-row">
+            <span style="font-weight:700">${f.name}</span>
+            <span class="${bClass}">${bText}</span>
+        </div>`;
+    });
+    html += `</div>`;
+
+    html += `<div class="green-box"><h3>💳 Payments to Make</h3>`;
+
+    if (!settlements.length) {
+        html += `<p style="text-align:center;color:#16a34a;font-weight:700;padding:16px">🎉 All settled up!</p>`;
+    } else {
+        settlements.forEach(s => {
+            html += `
+            <div class="settle-card ${s.isPaid ? 'paid' : ''}">
+                <div class="settle-row">
+                    <div class="settle-names">${getName(s.from)} → ${getName(s.to)}</div>
+                    <div class="settle-amount">₹${Math.round(s.amount)}</div>
+                </div>
+                <div class="settle-btns">
+                    ${s.isPaid ? 
+                        `<button class="btn btn-secondary btn-sm" onclick="markPaid('${s.key}', false)" style="width:100%">✓ Paid (tap to undo)</button>` :
+                        `<a href="${upiLink(getName(s.to), s.amount)}" class="btn btn-purple btn-sm">💳 Pay UPI</a>
+                         <button class="btn btn-green btn-sm" onclick="markPaid('${s.key}', true)">Mark Paid</button>`
+                    }
+                </div>
+            </div>`;
+        });
+    }
+    html += `</div>`;
+    return html;
+}
+
+function buildThailand() {
+    return `
+    <div class="thailand-card">
+        <h2 style="font-size:22px;font-weight:900;margin-bottom:16px">Ravi's Dream Thai Trip 🇹🇭</h2>
+        <h3>✈️ Must-Visit Places</h3>
+        <ul style="list-style:none;space-y:8px;margin-bottom:16px">
+            <li style="padding:6px 0">🏯 <strong>Bangkok</strong> - Grand Palace, street food paradise</li>
+            <li style="padding:6px 0">🏝️ <strong>Phuket</strong> - Beaches & island hopping</li>
+            <li style="padding:6px 0">🌄 <strong>Chiang Mai</strong> - Temples, night markets, elephants</li>
+            <li style="padding:6px 0">🏖️ <strong>Krabi</strong> - Limestone cliffs & crystal waters</li>
+        </ul>
+    </div>
+    <div class="thailand-card">
+        <h3>✅ Trip Checklist</h3>
+        <div class="checklist">
+            <label><input type="checkbox"> Check passport validity (6+ months)</label>
+            <label><input type="checkbox"> Get travel insurance</label>
+            <label><input type="checkbox"> Book flights & accommodation</label>
+            <label><input type="checkbox"> Notify bank about travel dates</label>
+            <label><input type="checkbox"> Exchange currency to Thai Baht (THB)</label>
+            <label><input type="checkbox"> Pack sunscreen & medications</label>
+            <label><input type="checkbox"> Download offline maps</label>
+            <label><input type="checkbox"> Set up Pachaax expense tracker! 💰</label>
+        </div>
+    </div>`;
+}
+
+function buildFriendModal() {
+    return `
+    <div class="modal-bg" onclick="state.showAddFriend=false;render()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Add Friend</h3>
+            <input type="text" id="friendInput" placeholder="Friend's name" value="${state.newFriendName}" 
+                oninput="state.newFriendName=this.value" onkeypress="if(event.key==='Enter')addFriend()" autofocus>
+            <div class="modal-btns">
+                <button class="btn btn-secondary" onclick="state.showAddFriend=false;render()">Cancel</button>
+                <button class="btn btn-primary" onclick="addFriend()">Add Friend</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+function buildExpenseModal() {
+    const opts = state.friends.map(f =>
+        `<option value="${f.id}" ${state.expPayer===f.id?'selected':''}>${f.name}</option>`).join('');
+    return `
+    <div class="modal-bg" onclick="state.showAddExpense=false;render()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Add Expense</h3>
+            <input type="text" placeholder="Description (e.g. Dinner, Hotel)" value="${state.expDesc}"
+                oninput="state.expDesc=this.value" autofocus>
+            <input type="number" placeholder="Amount (₹)" value="${state.expAmount}"
+                oninput="state.expAmount=this.value">
+            <select onchange="state.expPayer=this.value">
+                <option value="">Who paid?</option>
+                ${opts}
+            </select>
+            <div class="modal-btns">
+                <button class="btn btn-secondary" onclick="state.showAddExpense=false;render()">Cancel</button>
+                <button class="btn btn-primary" onclick="addExpense()">Add Expense</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+function bindEvents() {}
+
+function setTab(tab) {
+    state.tab = tab;
+    render();
+}
+
+function refreshData() {
+    state.loading = true;
+    render();
+    loadData();
+}
+
+// ============ INIT ============
+loadData();
+setInterval(refreshData, 30000);
+</script>
+</body>
+</html>
