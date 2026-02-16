@@ -403,10 +403,12 @@ function modalFriend(){
   return `<div class="modal-bg" onclick="closeModal()">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>Add Friend</h3>
-      <input id="inp-fname" class="field" type="text" placeholder="Friend's name" autocomplete="off">
+      <input id="inp-fname" class="field" type="text" placeholder="Friend's name" autocomplete="off"
+        oninput="modal.fname=this.value"
+        onkeypress="if(event.key==='Enter'){modal.fname=this.value;addFriend()}">
       <div class="modal-btns">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="addFriend()">Add Friend</button>
+        <button class="btn btn-primary" onclick="modal.fname=document.getElementById('inp-fname').value;addFriend()">Add Friend</button>
       </div>
     </div>
   </div>`;
