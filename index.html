@@ -83,8 +83,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script>
 // ===== PASSWORD =====
-const APP_PASSWORD = 'pachaax2025';
-let UNLOCKED = true; // Password disabled
+const APP_PASSWORD = 'pachaax2025'; // 🔐 Change this to your own password
+let UNLOCKED = localStorage.getItem('pachaax-auth') === APP_PASSWORD;
 
 // ===== FIREBASE CONFIG =====
 const FB_BASE = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
@@ -97,7 +97,7 @@ function FB_META() { return FB_BASE + '/' + TRIP_ID + '/meta.json'; }
 // ===== STATE =====
 let DB = { friends:[], expenses:[], settlements:[], meta:{} };
 let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true, showTrip: !TRIP_ID, loadingTrips:false };
-let M = { type:null, fname:'', edesc:'', eamt:'', epayer:'', esplit:'equal', csplits:{}, editId:null };
+let M  = { type:null, fname:'', edesc:'', eamt:'', epayer:'', esplit:'equal', csplits:{} };
 
 // ===== TOAST =====
 function toast(msg) {
@@ -317,15 +317,16 @@ async function addFriend() {
 }
 
 async function addExpense() {
-  const desc  = document.getElementById('inp-edesc').value.trim();
-  const amt   = parseFloat(document.getElementById('inp-eamt').value);
-  const payer = document.getElementById('inp-epayer').value;
+  const desc   = document.getElementById('inp-edesc').value.trim();
+  const amt    = parseFloat(document.getElementById('inp-eamt').value);
+  const payer  = document.getElementById('inp-epayer').value;
   if (!desc || isNaN(amt) || amt<=0 || !payer) { toast('Fill in all fields!'); return; }
   const split = {};
   if (M.esplit==='equal') {
     const per = amt/DB.friends.length;
     DB.friends.forEach(f => split[f.id]=per);
   } else {
+    // read custom inputs fresh from DOM
     DB.friends.forEach(f => {
       const el = document.getElementById('cs-'+f.id);
       M.csplits[f.id] = el ? el.value : (M.csplits[f.id]||0);
@@ -334,37 +335,9 @@ async function addExpense() {
     if (Math.abs(tot-amt)>0.01) { toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt)); return; }
     DB.friends.forEach(f => split[f.id]=parseFloat(M.csplits[f.id])||0);
   }
-
-  if (M.editId) {
-    // Edit existing expense
-    const idx = DB.expenses.findIndex(e => e.id === M.editId);
-    if (idx !== -1) {
-      DB.expenses[idx] = { ...DB.expenses[idx], description:desc, amount:amt, paidBy:payer, splitAmong:split };
-    }
-  } else {
-    // Add new expense
-    DB.expenses.push({ id:'e'+Date.now(), description:desc, amount:amt, paidBy:payer, splitAmong:split, date:new Date().toISOString() });
-  }
-
-  M.type=null; M.edesc=''; M.eamt=''; M.epayer=''; M.esplit='equal'; M.csplits={}; M.editId=null;
+  DB.expenses.push({id:'e'+Date.now(), description:desc, amount:amt, paidBy:payer, splitAmong:split, date:new Date().toISOString()});
+  M.type=null; M.edesc=''; M.eamt=''; M.epayer=''; M.esplit='equal'; M.csplits={};
   renderApp(); await saveDB();
-}
-
-function editExpense(id) {
-  const e = DB.expenses.find(ex => ex.id === id);
-  if (!e) return;
-  M.type    = 'expense';
-  M.editId  = id;
-  M.edesc   = e.description;
-  M.eamt    = e.amount;
-  M.epayer  = e.paidBy;
-  // detect split type
-  const vals = Object.values(e.splitAmong);
-  const allEqual = vals.every(v => Math.abs(v - vals[0]) < 0.01);
-  M.esplit  = allEqual ? 'equal' : 'custom';
-  M.csplits = allEqual ? {} : {...e.splitAmong};
-  renderApp();
-  setTimeout(() => { const el = document.getElementById('inp-edesc'); if(el){ el.focus(); el.select(); } }, 100);
 }
 
 async function delExpense(id) {
@@ -390,8 +363,8 @@ function setTab(t) {
   UI.tab=t; renderApp();
 }
 function openFriend()  { M.type='friend'; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-fname'); if(el)el.focus(); },100); }
-function openExpense() { M.type='expense'; M.editId=null; M.edesc=''; M.eamt=''; M.epayer=''; M.esplit='equal'; M.csplits={}; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-edesc'); if(el)el.focus(); },100); }
-function closeModal()  { M.type=null; M.editId=null; renderApp(); }
+function openExpense() { M.type='expense'; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-edesc'); if(el)el.focus(); },100); }
+function closeModal()  { M.type=null; renderApp(); }
 function setSplit(t)   { M.esplit=t; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-edesc'); if(el)el.focus(); },10); }
 
 function updateCustomTotal() {
@@ -522,7 +495,6 @@ function tabExpenses() {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <div style="font-size:20px;font-weight:900;color:#d97706">₹${Math.round(e.amount)}</div>
-          <button class="del-btn" onclick="editExpense('${e.id}')" title="Edit" style="color:#d97706;font-size:16px">✏️</button>
           <button class="del-btn" onclick="delExpense('${e.id}')">✕</button>
         </div>
       </div>
@@ -624,9 +596,8 @@ function modalFriend(){
 }
 
 function modalExpense(){
-  const opts=DB.friends.map(f=>`<option value="${f.id}" ${M.epayer==f.id?'selected':''}>${f.name}</option>`).join('');
+  const opts=DB.friends.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
   const ct=cTotal(), ea=parseFloat(M.eamt)||0, match=ea>0&&Math.abs(ct-ea)<0.01;
-  const isEdit = !!M.editId;
   const customBox = M.esplit==='custom'?`
     <div class="custom-box">
       <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px">AMOUNT PER PERSON:</div>
@@ -644,9 +615,9 @@ function modalExpense(){
     </div>`:'';
   return `<div class="modal-bg" onclick="closeModal()">
     <div class="modal" onclick="event.stopPropagation()">
-      <h3>${isEdit ? '✏️ Edit Expense' : '💸 Add Expense'}</h3>
-      <input id="inp-edesc" class="field" type="text" placeholder="Description (e.g. Dinner)" autocomplete="off" value="${M.edesc}">
-      <input id="inp-eamt" class="field" type="number" inputmode="decimal" placeholder="Amount (₹)" value="${M.eamt}">
+      <h3>💸 Add Expense</h3>
+      <input id="inp-edesc" class="field" type="text" placeholder="Description (e.g. Dinner)" autocomplete="off">
+      <input id="inp-eamt" class="field" type="number" inputmode="decimal" placeholder="Amount (₹)">
       <select id="inp-epayer" class="field">
         <option value="">Who paid?</option>${opts}
       </select>
@@ -657,14 +628,14 @@ function modalExpense(){
       ${customBox}
       <div class="modal-btns">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="addExpense()">${isEdit ? '💾 Save Changes' : 'Add Expense'}</button>
+        <button class="btn btn-primary" onclick="addExpense()">Add Expense</button>
       </div>
     </div>
   </div>`;
 }
 
 // ===== INIT =====
-if (!UNLOCKED) { renderApp(); } else { loadDB(); }
+loadDB();
 </script>
 </body>
 </html>
