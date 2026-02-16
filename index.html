@@ -94,6 +94,20 @@ function FB()      { return FB_BASE + '/' + TRIP_ID + '.json'; }
 function FB_ALL()  { return FB_BASE + '.json?shallow=true'; }
 function FB_META() { return FB_BASE + '/' + TRIP_ID + '/meta.json'; }
 
+// ===== FETCH WITH TIMEOUT =====
+async function fetchWithTimeout(url, options={}, ms=8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const r = await fetch(url, {...options, signal: controller.signal});
+    clearTimeout(timer);
+    return r;
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 // ===== STATE =====
 let DB = { friends:[], expenses:[], settlements:[], meta:{} };
 let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true, showTrip: !TRIP_ID, loadingTrips:false };
@@ -109,9 +123,17 @@ function toast(msg) {
 
 // ===== FIREBASE API =====
 async function loadDB() {
-  if (!TRIP_ID) { UI.loading=false; UI.showTrip=true; loadAllTrips(); renderApp(); return; }
+  if (!TRIP_ID) {
+    UI.loading = false;
+    UI.showTrip = true;
+    renderApp();
+    loadAllTrips();
+    return;
+  }
+  UI.loading = true;
+  renderApp();
   try {
-    const r = await fetch(FB());
+    const r = await fetchWithTimeout(FB());
     if (r.ok) {
       const d = await r.json();
       if (d) {
@@ -123,25 +145,30 @@ async function loadDB() {
         DB = { friends:[], expenses:[], settlements:[], meta:{} };
       }
       UI.lastSync = new Date().toLocaleTimeString();
+    } else {
+      toast('⚠️ Server error: ' + r.status);
     }
-  } catch(e) { toast('⚠️ Load failed. Check internet.'); }
+  } catch(e) {
+    toast('⚠️ Could not connect. Check internet or Firebase rules.');
+    console.error(e);
+  }
   UI.loading = false;
   renderApp();
 }
 
 async function loadAllTrips() {
-  UI.loadingTrips = true;
   try {
-    const r = await fetch(FB_ALL());
+    const r = await fetchWithTimeout(FB_ALL(), {}, 6000);
     if (r.ok) {
       const d = await r.json();
       if (d) {
-        // Load meta for each trip
         const keys = Object.keys(d);
         const metas = await Promise.all(keys.map(async k => {
-          const mr = await fetch(FB_BASE + '/' + k + '/meta.json');
-          const m  = mr.ok ? await mr.json() : null;
-          return { id: k, name: m?.name || k, date: m?.date || '' };
+          try {
+            const mr = await fetchWithTimeout(FB_BASE + '/' + k + '/meta.json', {}, 5000);
+            const m  = mr.ok ? await mr.json() : null;
+            return { id: k, name: m?.name || k, date: m?.date || '' };
+          } catch(e) { return { id: k, name: k, date: '' }; }
         }));
         ALL_TRIPS = metas.sort((a,b) => b.date.localeCompare(a.date));
       } else {
@@ -156,7 +183,7 @@ async function loadAllTrips() {
 async function saveDB() {
   UI.syncing = true; updateStatus();
   try {
-    const r = await fetch(FB(), {
+    const r = await fetchWithTimeout(FB(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(DB)
@@ -165,9 +192,9 @@ async function saveDB() {
       UI.lastSync = new Date().toLocaleTimeString();
       toast('✅ Saved & synced!');
     } else {
-      toast('⚠️ Save failed. Try again.');
+      toast('⚠️ Save failed: ' + r.status);
     }
-  } catch(e) { toast('⚠️ No internet connection.'); }
+  } catch(e) { toast('⚠️ No internet or request timed out.'); }
   UI.syncing = false; updateStatus();
 }
 
@@ -178,13 +205,13 @@ function updateStatus() {
 
 // ===== AUTO REFRESH =====
 setInterval(async () => {
-  if (M.type || !TRIP_ID) return;
+  if (M.type || !TRIP_ID || UI.syncing) return;
   try {
-    const r = await fetch(FB());
+    const r = await fetchWithTimeout(FB(), {}, 6000);
     if (r.ok) {
       const d = await r.json();
       if (d) {
-        DB.friends=d.friends||[]; DB.expenses=d.expenses||[]; DB.settlements=d.settlements||[];
+        DB.friends=d.friends||[]; DB.expenses=d.expenses||[]; DB.settlements=d.settlements||[]; DB.meta=d.meta||{};
         UI.lastSync=new Date().toLocaleTimeString();
         renderApp();
       }
