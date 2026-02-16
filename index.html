@@ -84,12 +84,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <script>
 // ===== FIREBASE CONFIG =====
 const FB_BASE = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
-let TRIP_ID = localStorage.getItem('pachaax-trip') || '';
-function FB() { return FB_BASE + '/' + TRIP_ID + '.json'; }
+let TRIP_ID   = localStorage.getItem('pachaax-trip') || '';
+let ALL_TRIPS = [];
+function FB()      { return FB_BASE + '/' + TRIP_ID + '.json'; }
+function FB_ALL()  { return FB_BASE + '.json?shallow=true'; }
+function FB_META() { return FB_BASE + '/' + TRIP_ID + '/meta.json'; }
 
 // ===== STATE =====
-let DB = { friends:[], expenses:[], settlements:[] };
-let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true, showTrip: !TRIP_ID };
+let DB = { friends:[], expenses:[], settlements:[], meta:{} };
+let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true, showTrip: !TRIP_ID, loadingTrips:false };
 let M  = { type:null, fname:'', edesc:'', eamt:'', epayer:'', esplit:'equal', csplits:{} };
 
 // ===== TOAST =====
@@ -102,7 +105,7 @@ function toast(msg) {
 
 // ===== FIREBASE API =====
 async function loadDB() {
-  if (!TRIP_ID) { UI.loading=false; UI.showTrip=true; renderApp(); return; }
+  if (!TRIP_ID) { UI.loading=false; UI.showTrip=true; loadAllTrips(); renderApp(); return; }
   try {
     const r = await fetch(FB());
     if (r.ok) {
@@ -111,13 +114,38 @@ async function loadDB() {
         DB.friends     = d.friends     || [];
         DB.expenses    = d.expenses    || [];
         DB.settlements = d.settlements || [];
+        DB.meta        = d.meta        || {};
       } else {
-        DB = { friends:[], expenses:[], settlements:[] };
+        DB = { friends:[], expenses:[], settlements:[], meta:{} };
       }
       UI.lastSync = new Date().toLocaleTimeString();
     }
   } catch(e) { toast('⚠️ Load failed. Check internet.'); }
   UI.loading = false;
+  renderApp();
+}
+
+async function loadAllTrips() {
+  UI.loadingTrips = true;
+  try {
+    const r = await fetch(FB_ALL());
+    if (r.ok) {
+      const d = await r.json();
+      if (d) {
+        // Load meta for each trip
+        const keys = Object.keys(d);
+        const metas = await Promise.all(keys.map(async k => {
+          const mr = await fetch(FB_BASE + '/' + k + '/meta.json');
+          const m  = mr.ok ? await mr.json() : null;
+          return { id: k, name: m?.name || k, date: m?.date || '' };
+        }));
+        ALL_TRIPS = metas.sort((a,b) => b.date.localeCompare(a.date));
+      } else {
+        ALL_TRIPS = [];
+      }
+    }
+  } catch(e) { ALL_TRIPS = []; }
+  UI.loadingTrips = false;
   renderApp();
 }
 
@@ -161,24 +189,36 @@ setInterval(async () => {
 }, 10000);
 
 // ===== TRIP MANAGEMENT =====
-function setTrip() {
-  const val = document.getElementById('inp-trip') ? document.getElementById('inp-trip').value.trim().toUpperCase().replace(/\s+/g,'-') : '';
-  if (!val) { toast('Enter a Trip ID!'); return; }
-  TRIP_ID = val;
+async function setTrip() {
+  const nameVal = document.getElementById('inp-trip') ? document.getElementById('inp-trip').value.trim() : '';
+  const dateVal = document.getElementById('inp-date') ? document.getElementById('inp-date').value : '';
+  if (!nameVal) { toast('Enter a Trip Name!'); return; }
+  // Generate ID from name
+  TRIP_ID = nameVal.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
   localStorage.setItem('pachaax-trip', TRIP_ID);
-  DB = { friends:[], expenses:[], settlements:[] };
-  UI.showTrip = false;
-  UI.loading = true;
+  DB = { friends:[], expenses:[], settlements:[], meta:{ name: nameVal, date: dateVal, created: new Date().toISOString() } };
+  UI.showTrip = false; UI.loading = true;
   renderApp();
+  // Save meta first, then load
+  await fetch(FB_META(), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(DB.meta) });
   loadDB();
+}
+
+function selectTrip(id) {
+  TRIP_ID = id;
+  localStorage.setItem('pachaax-trip', TRIP_ID);
+  DB = { friends:[], expenses:[], settlements:[], meta:{} };
+  UI.showTrip = false; UI.loading = true;
+  renderApp(); loadDB();
 }
 
 function switchTrip() {
   TRIP_ID = '';
   localStorage.removeItem('pachaax-trip');
-  DB = { friends:[], expenses:[], settlements:[] };
-  UI.showTrip = true;
-  UI.loading = false;
+  DB = { friends:[], expenses:[], settlements:[], meta:{} };
+  ALL_TRIPS = [];
+  UI.showTrip = true; UI.loading = false;
+  loadAllTrips();
   renderApp();
 }
 
@@ -311,6 +351,7 @@ function renderApp() {
       <div>
         <h1>💰 Pachaax Expenses</h1>
         <p id="sync-status">${UI.syncing?'☁️ Syncing...':UI.lastSync?'✅ Synced: '+UI.lastSync:'Real-time shared tracker'}</p>
+        ${DB.meta?.name ? `<p style="font-size:12px;color:#fef3c7;font-weight:700;margin-top:2px">✈️ ${DB.meta.name}${DB.meta.date?' &nbsp;|&nbsp; 📅 '+new Date(DB.meta.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):''}</p>` : ''}
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <div style="background:rgba(0,0,0,0.2);padding:5px 8px;border-radius:8px;font-size:11px;font-weight:700;color:white">
@@ -336,26 +377,41 @@ function renderApp() {
 
 // ===== TABS =====
 function tripScreen() {
+  const today = new Date().toISOString().split('T')[0];
+  const tripList = ALL_TRIPS.length ? `
+    <div style="margin-top:20px">
+      <div style="font-weight:700;font-size:13px;color:#374151;margin-bottom:8px">📋 OR JOIN EXISTING TRIP</div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto">
+        ${ALL_TRIPS.map(t => `
+        <div onclick="selectTrip('${t.id}')" style="background:#fff7ed;border:2px solid #fed7aa;border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:all 0.2s"
+          onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fff7ed'">
+          <div>
+            <div style="font-weight:900;font-size:14px;color:#92400e">${t.name}</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px">
+              🏷️ ${t.id} ${t.date ? '&nbsp;|&nbsp; 📅 '+new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : ''}
+            </div>
+          </div>
+          <div style="font-size:20px">→</div>
+        </div>`).join('')}
+      </div>
+    </div>` : UI.loadingTrips ? `<div style="text-align:center;color:#6b7280;font-size:13px;margin-top:16px">⏳ Loading trips...</div>` : `<div style="text-align:center;color:#6b7280;font-size:13px;margin-top:16px">No existing trips found.</div>`;
+
   return `
   <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:linear-gradient(135deg,#fff7ed,#fef3c7)">
     <div style="font-size:48px;margin-bottom:12px">💰</div>
-    <h1 style="font-size:26px;font-weight:900;color:#92400e;margin-bottom:6px">Pachaax Expenses</h1>
-    <p style="color:#6b7280;font-size:14px;margin-bottom:32px;text-align:center">Enter a Trip ID to load or create a trip.<br>Share the same ID with your group!</p>
-    <div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;box-shadow:0 4px 20px rgba(0,0,0,0.1)">
-      <label style="font-weight:700;font-size:13px;color:#374151;display:block;margin-bottom:6px">🏷️ TRIP ID</label>
-      <input id="inp-trip" class="field" type="text" placeholder="e.g. THAILAND-2025, GOA-TRIP"
-        style="text-transform:uppercase;letter-spacing:1px;font-weight:700"
+    <h1 style="font-size:26px;font-weight:900;color:#92400e;margin-bottom:4px">Pachaax Expenses</h1>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:24px;text-align:center">Create a new trip or join an existing one</p>
+    <div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:380px;box-shadow:0 4px 20px rgba(0,0,0,0.1)">
+      <div style="font-weight:700;font-size:13px;color:#374151;margin-bottom:8px">✨ CREATE NEW TRIP</div>
+      <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Trip Name</label>
+      <input id="inp-trip" class="field" type="text" placeholder="e.g. Thailand 2025, Goa Trip"
         onkeydown="if(event.key==='Enter')setTrip()">
-      <button class="btn btn-primary" onclick="setTrip()" style="width:100%;padding:14px;font-size:15px">
-        🚀 Enter Trip
+      <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Trip Date</label>
+      <input id="inp-date" class="field" type="date" value="${today}">
+      <button class="btn btn-primary" onclick="setTrip()" style="width:100%;padding:13px;font-size:15px;margin-top:4px">
+        🚀 Create Trip
       </button>
-      <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:10px;font-size:12px;color:#92400e;line-height:1.6">
-        <strong>How it works:</strong><br>
-        ✅ Create a new trip → Enter any unique ID<br>
-        ✅ Join existing trip → Enter the same ID<br>
-        ✅ Each trip has its own friends & expenses<br>
-        ✅ Switch trips anytime using 🔀 button
-      </div>
+      ${tripList}
     </div>
   </div>`;
 }
