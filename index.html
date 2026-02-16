@@ -44,8 +44,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .custom-box{background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:10px;border:2px solid #e5e7eb}
 .custom-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .custom-row span{flex:1;font-weight:600;font-size:14px}
-.custom-row .custom-input{width:100px;margin:0;padding:9px;font-size:14px;border:2px solid #e5e7eb;border-radius:8px;outline:none;font-family:inherit}
-.custom-row .custom-input:focus{border-color:#d97706}
+.custom-input{width:100px;padding:9px;font-size:14px;border:2px solid #e5e7eb;border-radius:8px;outline:none;font-family:inherit}
+.custom-input:focus{border-color:#d97706}
 .custom-total{display:flex;justify-content:space-between;padding-top:8px;margin-top:4px;border-top:1px solid #e5e7eb;font-size:13px}
 .bal-table{background:white;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07)}
 .bal-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f3f4f6}
@@ -63,88 +63,101 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .footer{position:fixed;bottom:0;left:0;right:0;background:#78350f;color:#fef3c7;padding:7px;text-align:center;font-size:11px}
 .del-btn{background:none;border:none;cursor:pointer;color:#ef4444;padding:4px;font-size:18px}
 .refresh-btn{background:rgba(0,0,0,0.2);color:white;border:none;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
-.loading{display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:8px;text-align:center;padding:20px}
+.loading{display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:8px;text-align:center}
 .pos{color:#16a34a;font-weight:700;font-size:13px}
 .neg{color:#ef4444;font-weight:700;font-size:13px}
 .zero{color:#6b7280;font-weight:700;font-size:13px}
 .friend-card{background:white;border-radius:14px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);border:2px solid #fed7aa}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#1f2937;color:white;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity 0.3s}
+.toast.show{opacity:1}
 </style>
 </head>
 <body>
 <div id="app">
   <div class="loading">
     <h2 style="color:#d97706;font-size:22px">Loading Pachaax...</h2>
-    <p style="color:#6b7280">☁️ Syncing data across all devices</p>
+    <p style="color:#6b7280">☁️ Connecting to Firebase</p>
   </div>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
-// ===== CONFIG =====
-const BIN_ID  = '698d6d5ad0ea881f40b411b1';
-const API_KEY = '$2a$10$EtNNZ1TPzefvRO2ONkrot.nwo4mTSIbP3677PGGlSZ43vuceHIzWK';
-const API_URL = 'https://api.jsonbin.io/v3/b/' + BIN_ID;
+// ===== FIREBASE CONFIG =====
+const FB = 'https://pachaax-expenses-default-rtdb.firebaseio.com/data.json';
 
-// ===== DATA (live DB values, never wiped on render) =====
+// ===== STATE =====
 let DB = { friends:[], expenses:[], settlements:[] };
+let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true };
+let M  = { type:null, fname:'', edesc:'', eamt:'', epayer:'', esplit:'equal', csplits:{} };
 
-// ===== MODAL STATE (kept separately so render never clears inputs) =====
-let modal = {
-  type: null, // 'friend' | 'expense'
-  // friend form
-  fname: '',
-  // expense form
-  edesc: '', eamt: '', epayer: '', esplit: 'equal', csplits: {}
-};
+// ===== TOAST =====
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
 
-// ===== UI STATE =====
-let tab      = 'expenses';
-let syncing  = false;
-let lastSync = null;
-let loading  = true;
-
-// ===== API =====
+// ===== FIREBASE API =====
 async function loadDB() {
   try {
-    const r = await fetch(API_URL + '/latest', {
-      headers: { 'X-Master-Key': API_KEY, 'X-Bin-Meta': 'false' }
-    });
+    const r = await fetch(FB);
     if (r.ok) {
       const d = await r.json();
-      DB.friends     = d.friends     || [];
-      DB.expenses    = d.expenses    || [];
-      DB.settlements = d.settlements || [];
-      lastSync = new Date().toLocaleTimeString();
-    } else {
-      console.error('Load status:', r.status);
+      if (d) {
+        DB.friends     = d.friends     || [];
+        DB.expenses    = d.expenses    || [];
+        DB.settlements = d.settlements || [];
+      }
+      UI.lastSync = new Date().toLocaleTimeString();
     }
-  } catch(e) { console.error('Load error:', e); }
-  loading = false;
+  } catch(e) { toast('⚠️ Load failed. Check internet.'); }
+  UI.loading = false;
   renderApp();
 }
 
 async function saveDB() {
-  syncing = true; updateSyncStatus();
+  UI.syncing = true; updateStatus();
   try {
-    const r = await fetch(API_URL, {
+    const r = await fetch(FB, {
       method: 'PUT',
-      headers: { 'Content-Type':'application/json', 'X-Master-Key': API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(DB)
     });
     if (r.ok) {
-      lastSync = new Date().toLocaleTimeString();
+      UI.lastSync = new Date().toLocaleTimeString();
+      toast('✅ Saved & synced!');
     } else {
-      alert('Save failed (status ' + r.status + '). Try again.');
+      toast('⚠️ Save failed. Try again.');
     }
-  } catch(e) { alert('No internet connection.'); }
-  syncing = false; updateSyncStatus();
+  } catch(e) { toast('⚠️ No internet connection.'); }
+  UI.syncing = false; updateStatus();
 }
 
-function updateSyncStatus() {
+function updateStatus() {
   const el = document.getElementById('sync-status');
-  if (el) el.textContent = syncing ? '☁️ Syncing...' : lastSync ? '✅ Synced: ' + lastSync : '';
+  if (el) el.textContent = UI.syncing ? '☁️ Syncing...' : UI.lastSync ? '✅ Synced: '+UI.lastSync : '';
 }
 
-// ===== BALANCE CALCULATIONS =====
+// ===== AUTO REFRESH =====
+setInterval(async () => {
+  if (M.type) return; // don't refresh while modal is open
+  try {
+    const r = await fetch(FB);
+    if (r.ok) {
+      const d = await r.json();
+      if (d) {
+        DB.friends     = d.friends     || [];
+        DB.expenses    = d.expenses    || [];
+        DB.settlements = d.settlements || [];
+        UI.lastSync    = new Date().toLocaleTimeString();
+        renderApp();
+      }
+    }
+  } catch(e) {}
+}, 10000);
+
+// ===== CALCULATIONS =====
 function getBalances() {
   const b = {};
   DB.friends.forEach(f => b[f.id] = 0);
@@ -159,13 +172,12 @@ function getSettlements() {
   const b = getBalances();
   const debt=[], cred=[], res=[];
   Object.entries(b).forEach(([id,v]) => {
-    if (v < -0.01) debt.push({id, a:-v});
-    else if (v > 0.01) cred.push({id, a:v});
+    if (v<-0.01) debt.push({id,a:-v});
+    else if (v>0.01) cred.push({id,a:v});
   });
-  let i=0, j=0;
-  while (i<debt.length && j<cred.length) {
-    const d=debt[i], c=cred[j], amt=Math.min(d.a,c.a);
-    const key=d.id+'-'+c.id;
+  let i=0,j=0;
+  while(i<debt.length && j<cred.length){
+    const d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
     res.push({from:d.id,to:c.id,amount:amt,key,paid:DB.settlements.includes(key)});
     d.a-=amt; c.a-=amt;
     if(d.a<0.01)i++; if(c.a<0.01)j++;
@@ -175,43 +187,39 @@ function getSettlements() {
 
 function getName(id){ return (DB.friends.find(f=>f.id===id)||{name:'?'}).name; }
 function upiLink(n,a){ return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax'; }
-function customTotal(){ return Object.values(modal.csplits).reduce((s,v)=>s+(parseFloat(v)||0),0); }
+function cTotal(){ return Object.values(M.csplits).reduce((s,v)=>s+(parseFloat(v)||0),0); }
 
 // ===== ACTIONS =====
 async function addFriend() {
-  const n = modal.fname.trim();
-  if (!n) return;
-  DB.friends.push({id: Date.now().toString(), name: n});
-  modal.type = null; modal.fname = '';
-  renderApp();
-  await saveDB();
+  const n = document.getElementById('inp-fname') ? document.getElementById('inp-fname').value.trim() : M.fname.trim();
+  if (!n) { toast('Enter a name!'); return; }
+  DB.friends.push({id:'f'+Date.now(), name:n});
+  M.type=null; M.fname='';
+  renderApp(); await saveDB();
 }
 
 async function addExpense() {
-  const amt = parseFloat(modal.eamt);
-  if (!modal.edesc.trim() || isNaN(amt) || amt<=0 || !modal.epayer) {
-    alert('Please fill in all fields!'); return;
-  }
+  const desc   = document.getElementById('inp-edesc').value.trim();
+  const amt    = parseFloat(document.getElementById('inp-eamt').value);
+  const payer  = document.getElementById('inp-epayer').value;
+  if (!desc || isNaN(amt) || amt<=0 || !payer) { toast('Fill in all fields!'); return; }
   const split = {};
-  if (modal.esplit === 'equal') {
-    const per = amt / DB.friends.length;
-    DB.friends.forEach(f => split[f.id] = per);
+  if (M.esplit==='equal') {
+    const per = amt/DB.friends.length;
+    DB.friends.forEach(f => split[f.id]=per);
   } else {
-    const tot = customTotal();
-    if (Math.abs(tot - amt) > 0.01) {
-      alert('Custom split ₹'+Math.round(tot)+' must equal ₹'+Math.round(amt)); return;
-    }
-    DB.friends.forEach(f => split[f.id] = parseFloat(modal.csplits[f.id])||0);
+    // read custom inputs fresh from DOM
+    DB.friends.forEach(f => {
+      const el = document.getElementById('cs-'+f.id);
+      M.csplits[f.id] = el ? el.value : (M.csplits[f.id]||0);
+    });
+    const tot = cTotal();
+    if (Math.abs(tot-amt)>0.01) { toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt)); return; }
+    DB.friends.forEach(f => split[f.id]=parseFloat(M.csplits[f.id])||0);
   }
-  DB.expenses.push({
-    id: Date.now().toString(),
-    description: modal.edesc.trim(),
-    amount: amt, paidBy: modal.epayer, splitAmong: split,
-    date: new Date().toISOString()
-  });
-  modal.type=null; modal.edesc=''; modal.eamt=''; modal.epayer=''; modal.esplit='equal'; modal.csplits={};
-  renderApp();
-  await saveDB();
+  DB.expenses.push({id:'e'+Date.now(), description:desc, amount:amt, paidBy:payer, splitAmong:split, date:new Date().toISOString()});
+  M.type=null; M.edesc=''; M.eamt=''; M.epayer=''; M.esplit='equal'; M.csplits={};
+  renderApp(); await saveDB();
 }
 
 async function delExpense(id) {
@@ -220,86 +228,70 @@ async function delExpense(id) {
   renderApp(); await saveDB();
 }
 
-async function markPaid(key, paid) {
-  if (paid) DB.settlements.push(key);
+async function markPaid(key,paid) {
+  if(paid) DB.settlements.push(key);
   else DB.settlements = DB.settlements.filter(s=>s!==key);
   renderApp(); await saveDB();
 }
 
 async function resetAll() {
   if (!confirm('⚠️ Delete ALL data for everyone? Cannot be undone!')) return;
-  DB = {friends:[], expenses:[], settlements:[]};
+  DB={friends:[],expenses:[],settlements:[]};
   renderApp(); await saveDB();
 }
 
-// ===== MODAL OPEN/CLOSE =====
-function openFriendModal()  { modal.type='friend'; modal.fname=''; renderModal(); }
-function openExpenseModal() { modal.type='expense'; renderModal(); }
-function closeModal()       { modal.type=null; renderModal(); }
-
-// ===== TAB =====
+// ===== UI CONTROLS =====
 function setTab(t) {
-  tab = t;
-  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-  document.getElementById('tab-'+t).classList.add('active');
-  document.getElementById('tab-content').innerHTML = renderTabContent();
+  UI.tab=t; renderApp();
 }
+function openFriend()  { M.type='friend'; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-fname'); if(el)el.focus(); },100); }
+function openExpense() { M.type='expense'; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-edesc'); if(el)el.focus(); },100); }
+function closeModal()  { M.type=null; renderApp(); }
+function setSplit(t)   { M.esplit=t; renderApp(); setTimeout(()=>{ const el=document.getElementById('inp-edesc'); if(el)el.focus(); },10); }
+function refreshNow()  { UI.loading=true; renderApp(); loadDB(); }
 
-function refreshData() { loading=true; renderApp(); loadDB(); }
-
-// ===== RENDER HELPERS =====
+// ===== RENDER =====
 function renderApp() {
-  document.getElementById('app').innerHTML = `
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  let body = '';
+  if (UI.loading) {
+    body = `<div class="loading"><h2 style="color:#d97706">Loading...</h2><p style="color:#6b7280">☁️ Syncing</p></div>`;
+  } else if (UI.tab==='expenses') body = tabExpenses();
+  else if (UI.tab==='friends')    body = tabFriends();
+  else if (UI.tab==='settle')     body = tabSettle();
+  else if (UI.tab==='thailand')   body = tabThailand();
+
+  app.innerHTML = `
   <div class="header">
     <div class="header-row">
       <div>
         <h1>💰 Pachaax Expenses</h1>
-        <p id="sync-status">${syncing?'☁️ Syncing...': lastSync?'✅ Synced: '+lastSync:'Real-time shared tracker'}</p>
+        <p id="sync-status">${UI.syncing?'☁️ Syncing...':UI.lastSync?'✅ Synced: '+UI.lastSync:'Real-time shared tracker'}</p>
       </div>
-      <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+      <button class="refresh-btn" onclick="refreshNow()">🔄 Refresh</button>
     </div>
   </div>
   <div class="tabs">
-    <button class="tab ${tab==='expenses'?'active':''}" id="tab-expenses" onclick="setTab('expenses')">Expenses</button>
-    <button class="tab ${tab==='friends'?'active':''}" id="tab-friends" onclick="setTab('friends')">Friends (${DB.friends.length})</button>
-    <button class="tab ${tab==='settle'?'active':''}" id="tab-settle" onclick="setTab('settle')">Settle Up</button>
-    <button class="tab ${tab==='thailand'?'active':''}" id="tab-thailand" onclick="setTab('thailand')">Ravi's Thai 🇹🇭</button>
+    <button class="tab ${UI.tab==='expenses'?'active':''}" onclick="setTab('expenses')">Expenses</button>
+    <button class="tab ${UI.tab==='friends'?'active':''}" onclick="setTab('friends')">Friends (${DB.friends.length})</button>
+    <button class="tab ${UI.tab==='settle'?'active':''}" onclick="setTab('settle')">Settle Up</button>
+    <button class="tab ${UI.tab==='thailand'?'active':''}" onclick="setTab('thailand')">Ravi's Thai 🇹🇭</button>
   </div>
-  <div class="content" id="tab-content">${renderTabContent()}</div>
-  <div id="modal-container">${renderModalContent()}</div>
-  <div class="footer">💡 Data syncs across all devices every 15s! Share this link with your group.</div>`;
-}
-
-function renderModal() {
-  const el = document.getElementById('modal-container');
-  if (el) el.innerHTML = renderModalContent();
-}
-
-function renderTabContent() {
-  if (loading) return `<div class="loading"><h2 style="color:#d97706">Loading...</h2><p style="color:#6b7280">☁️ Syncing</p></div>`;
-  if (tab==='expenses') return tabExpenses();
-  if (tab==='friends')  return tabFriends();
-  if (tab==='settle')   return tabSettle();
-  if (tab==='thailand') return tabThailand();
-  return '';
-}
-
-function renderModalContent() {
-  if (modal.type === 'friend')  return modalFriend();
-  if (modal.type === 'expense') return modalExpense();
-  return '';
+  <div class="content">${body}</div>
+  ${M.type==='friend' ? modalFriend() : M.type==='expense' ? modalExpense() : ''}
+  <div class="footer">💡 Real-time sync via Firebase! Share your GitHub link with the group.</div>`;
 }
 
 // ===== TABS =====
 function tabExpenses() {
-  let h = `<div class="sec-header">
-    <h2>All Expenses</h2>
-    <button class="btn btn-primary" onclick="openExpenseModal()" ${!DB.friends.length?'disabled':''}>+ Add</button>
-  </div>`;
+  let h=`<div class="sec-header"><h2>All Expenses</h2>
+    <button class="btn btn-primary" onclick="openExpense()" ${!DB.friends.length?'disabled':''}>+ Add</button></div>`;
   if (!DB.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn btn-primary" onclick="setTab('friends')">Go to Friends</button></div>`;
   if (!DB.expenses.length) return h+`<div class="empty"><p>💸 No expenses yet!</p></div>`;
-  return h + DB.expenses.map(e => {
-    const tags = Object.entries(e.splitAmong).filter(([,a])=>a>0)
+  return h+DB.expenses.map(e=>{
+    const tags=Object.entries(e.splitAmong).filter(([,a])=>a>0)
       .map(([id,a])=>`<span class="tag">${getName(id)}: ₹${Math.round(a)}</span>`).join('');
     return `<div class="card">
       <div class="row">
@@ -318,19 +310,17 @@ function tabExpenses() {
 }
 
 function tabFriends() {
-  const bal = getBalances();
-  let h = `<div class="sec-header"><h2>Your Group</h2>
-    <button class="btn btn-primary" onclick="openFriendModal()">+ Add</button></div>`;
+  const bal=getBalances();
+  let h=`<div class="sec-header"><h2>Your Group</h2>
+    <button class="btn btn-primary" onclick="openFriend()">+ Add</button></div>`;
   if (!DB.friends.length) return h+`<div class="empty"><p>👥 Add your travel buddies!</p></div>`;
-  h += DB.friends.map(f => {
-    const b=bal[f.id]||0;
-    const cls=b>0.01?'pos':b<-0.01?'neg':'zero';
+  h+=DB.friends.map(f=>{
+    const b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
     const txt=b>0.01?`Gets back ₹${Math.round(b)}`:b<-0.01?`Owes ₹${Math.round(-b)}`:'All settled ✓';
     return `<div class="friend-card">
       <div class="avatar">${f.name[0].toUpperCase()}</div>
       <div><div style="font-weight:900;font-size:16px">${f.name}</div>
-      <div class="${cls}">${txt}</div></div>
-    </div>`;
+      <div class="${cls}">${txt}</div></div></div>`;
   }).join('');
   h+=`<div style="text-align:center;margin-top:12px">
     <button class="btn btn-red btn-sm" onclick="resetAll()">🗑️ Reset All Data</button></div>`;
@@ -343,8 +333,7 @@ function tabSettle() {
   const bal=getBalances(), sets=getSettlements();
   let h=`<div class="bal-table"><div style="font-weight:900;font-size:16px;margin-bottom:10px">Current Balances</div>`;
   h+=DB.friends.map(f=>{
-    const b=bal[f.id]||0;
-    const cls=b>0.01?'pos':b<-0.01?'neg':'zero';
+    const b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
     const txt=b>0.01?`+₹${Math.round(b)}`:b<-0.01?`-₹${Math.round(-b)}`:'₹0';
     return `<div class="bal-row"><span style="font-weight:700">${f.name}</span><span class="${cls}">${txt}</span></div>`;
   }).join('');
@@ -360,15 +349,14 @@ function tabSettle() {
       </div>
       <div class="settle-btns">
         ${s.paid
-          ? `<button class="btn btn-secondary btn-sm" onclick="markPaid('${s.key}',false)" style="width:100%">✓ Paid — Tap to undo</button>`
-          : `<a href="${upiLink(getName(s.to),s.amount)}" class="btn btn-purple btn-sm" style="flex:1">💳 Pay UPI</a>
-             <button class="btn btn-green btn-sm" onclick="markPaid('${s.key}',true)" style="flex:1">Mark Paid</button>`
+          ?`<button class="btn btn-secondary btn-sm" onclick="markPaid('${s.key}',false)" style="width:100%">✓ Paid — Tap to undo</button>`
+          :`<a href="${upiLink(getName(s.to),s.amount)}" class="btn btn-purple btn-sm" style="flex:1">💳 Pay UPI</a>
+            <button class="btn btn-green btn-sm" onclick="markPaid('${s.key}',true)" style="flex:1">Mark Paid</button>`
         }
       </div>
     </div>`).join('');
   }
-  h+=`</div>`;
-  return h;
+  return h+`</div>`;
 }
 
 function tabThailand(){
@@ -402,101 +390,57 @@ function tabThailand(){
 function modalFriend(){
   return `<div class="modal-bg" onclick="closeModal()">
     <div class="modal" onclick="event.stopPropagation()">
-      <h3>Add Friend</h3>
+      <h3>👤 Add Friend</h3>
       <input id="inp-fname" class="field" type="text" placeholder="Friend's name" autocomplete="off"
-        oninput="modal.fname=this.value"
-        onkeypress="if(event.key==='Enter'){modal.fname=this.value;addFriend()}">
+        onkeydown="if(event.key==='Enter')addFriend()">
       <div class="modal-btns">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="modal.fname=document.getElementById('inp-fname').value;addFriend()">Add Friend</button>
+        <button class="btn btn-primary" onclick="addFriend()">Add Friend</button>
       </div>
     </div>
   </div>`;
 }
 
 function modalExpense(){
-  const opts = DB.friends.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
-  const ct = customTotal();
-  const ea = parseFloat(modal.eamt)||0;
-  const match = ea>0 && Math.abs(ct-ea)<0.01;
-
-  const customBox = modal.esplit==='custom' ? `
+  const opts=DB.friends.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
+  const ct=cTotal(), ea=parseFloat(M.eamt)||0, match=ea>0&&Math.abs(ct-ea)<0.01;
+  const customBox = M.esplit==='custom'?`
     <div class="custom-box">
-      <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;text-transform:uppercase">Amount per person:</div>
+      <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px">AMOUNT PER PERSON:</div>
       ${DB.friends.map(f=>`
       <div class="custom-row">
         <span>${f.name}</span>
-        <input class="custom-input" type="number" id="cs-${f.id}" placeholder="0"
-          value="${modal.csplits[f.id]||''}"
-          onchange="modal.csplits['${f.id}']=this.value; document.getElementById('ct-label').textContent='₹'+Math.round(Object.values(modal.csplits).reduce((s,v)=>s+(parseFloat(v)||0),0)); document.getElementById('ct-label').style.color=(Math.abs(Object.values(modal.csplits).reduce((s,v)=>s+(parseFloat(v)||0),0)-(parseFloat(document.getElementById('inp-eamt').value)||0))<0.01&&(parseFloat(document.getElementById('inp-eamt').value)||0)>0)?'#16a34a':'#ef4444';">
+        <input id="cs-${f.id}" class="custom-input" type="number" inputmode="decimal"
+          placeholder="0" value="${M.csplits[f.id]||''}">
       </div>`).join('')}
       <div class="custom-total">
         <span style="font-weight:700">Total:</span>
-        <span id="ct-label" style="font-weight:900;color:${match?'#16a34a':'#ef4444'}">₹${Math.round(ct)} ${match?'✅':'(need ₹'+Math.round(ea)+')'}</span>
+        <span style="font-weight:900;color:${match?'#16a34a':'#ef4444'}">₹${Math.round(ct)} ${match?'✅':'← need ₹'+Math.round(ea)}</span>
       </div>
-    </div>` : '';
-
+    </div>`:'';
   return `<div class="modal-bg" onclick="closeModal()">
     <div class="modal" onclick="event.stopPropagation()">
-      <h3>Add Expense</h3>
-      <input id="inp-edesc" class="field" type="text" placeholder="Description (e.g. Dinner, Hotel)"
-        value="${modal.edesc}" autocomplete="off"
-        onchange="modal.edesc=this.value">
-      <input id="inp-eamt" class="field" type="number" placeholder="Amount (₹)"
-        value="${modal.eamt}" inputmode="decimal"
-        onchange="modal.eamt=this.value">
-      <select id="inp-epayer" class="field" onchange="modal.epayer=this.value">
-        <option value="">Who paid?</option>
-        ${opts}
+      <h3>💸 Add Expense</h3>
+      <input id="inp-edesc" class="field" type="text" placeholder="Description (e.g. Dinner)" autocomplete="off">
+      <input id="inp-eamt" class="field" type="number" inputmode="decimal" placeholder="Amount (₹)">
+      <select id="inp-epayer" class="field">
+        <option value="">Who paid?</option>${opts}
       </select>
       <div class="split-toggle">
-        <button class="btn btn-sm ${modal.esplit==='equal'?'btn-primary':'btn-secondary'}"
-          onclick="modal.esplit='equal';renderModal()">⚖️ Equal Split</button>
-        <button class="btn btn-sm ${modal.esplit==='custom'?'btn-primary':'btn-secondary'}"
-          onclick="modal.esplit='custom';renderModal()">✏️ Custom Split</button>
+        <button class="btn btn-sm ${M.esplit==='equal'?'btn-primary':'btn-secondary'}" onclick="setSplit('equal')">⚖️ Equal Split</button>
+        <button class="btn btn-sm ${M.esplit==='custom'?'btn-primary':'btn-secondary'}" onclick="setSplit('custom')">✏️ Custom Split</button>
       </div>
       ${customBox}
       <div class="modal-btns">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="
-          modal.edesc=document.getElementById('inp-edesc').value;
-          modal.eamt=document.getElementById('inp-eamt').value;
-          modal.epayer=document.getElementById('inp-epayer').value;
-          addExpense()">Add Expense</button>
+        <button class="btn btn-primary" onclick="addExpense()">Add Expense</button>
       </div>
     </div>
   </div>`;
 }
 
-// ===== FRIEND INPUT - bind after render =====
-document.addEventListener('click', function(e){
-  if (e.target && e.target.id === 'inp-fname') {
-    e.target.addEventListener('keypress', function(ke){
-      if (ke.key==='Enter') {
-        modal.fname = document.getElementById('inp-fname').value;
-        addFriend();
-      }
-    });
-  }
-});
-
 // ===== INIT =====
 loadDB();
-setInterval(function(){
-  if (!modal.type) { // only auto-refresh when no modal open
-    fetch(API_URL+'/latest',{headers:{'X-Master-Key':API_KEY,'X-Bin-Meta':'false'}})
-    .then(r=>r.ok?r.json():null)
-    .then(d=>{
-      if(d){
-        DB.friends=d.friends||[];
-        DB.expenses=d.expenses||[];
-        DB.settlements=d.settlements||[];
-        lastSync=new Date().toLocaleTimeString();
-        if(!modal.type) renderApp();
-      }
-    }).catch(()=>{});
-  }
-}, 15000);
 </script>
 </body>
 </html>
