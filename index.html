@@ -130,7 +130,9 @@ async function loadDB() {
     loadAllTrips();
     return;
   }
-  UI.loading = true;
+  // Show UI immediately, load in background
+  UI.loading = false;
+  UI.showTrip = false;
   renderApp();
   try {
     const r = await fetchWithTimeout(FB());
@@ -141,19 +143,16 @@ async function loadDB() {
         DB.expenses    = d.expenses    || [];
         DB.settlements = d.settlements || [];
         DB.meta        = d.meta        || {};
-      } else {
-        DB = { friends:[], expenses:[], settlements:[], meta:{} };
       }
       UI.lastSync = new Date().toLocaleTimeString();
+      renderApp();
     } else {
-      toast('⚠️ Server error: ' + r.status);
+      toast('⚠️ Firebase error ' + r.status + '. Check rules.');
     }
   } catch(e) {
-    toast('⚠️ Could not connect. Check internet or Firebase rules.');
+    toast('⚠️ Could not reach Firebase. Check your internet.');
     console.error(e);
   }
-  UI.loading = false;
-  renderApp();
 }
 
 async function loadAllTrips() {
@@ -448,9 +447,7 @@ function renderApp() {
 
   let body = '';
   if (!UNLOCKED) { app.innerHTML = passwordScreen(); return; }
-  if (UI.loading) {
-    body = `<div class="loading"><h2 style="color:#d97706">Loading...</h2><p style="color:#6b7280">☁️ Syncing</p></div>`;
-  } else if (UI.tab==='expenses') body = tabExpenses();
+  if (UI.tab==='expenses') body = tabExpenses();
   else if (UI.tab==='friends')    body = tabFriends();
   else if (UI.tab==='settle')     body = tabSettle();
   else if (UI.tab==='thailand')   body = tabThailand();
@@ -704,7 +701,16 @@ function modalExpense(){
 }
 
 // ===== INIT =====
-if (!UNLOCKED) { renderApp(); } else { loadDB(); }
+UI.loading = false;
+if (TRIP_ID) {
+  UI.showTrip = false;
+  renderApp();
+  loadDB();
+} else {
+  UI.showTrip = true;
+  renderApp();
+  loadAllTrips();
+}
 </script>
 </body>
 </html>
