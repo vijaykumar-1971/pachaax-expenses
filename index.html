@@ -83,11 +83,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script>
 // ===== FIREBASE CONFIG =====
-const FB = 'https://pachaax-expenses-default-rtdb.firebaseio.com/data.json';
+const FB_BASE = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
+let TRIP_ID = localStorage.getItem('pachaax-trip') || '';
+function FB() { return FB_BASE + '/' + TRIP_ID + '.json'; }
 
 // ===== STATE =====
 let DB = { friends:[], expenses:[], settlements:[] };
-let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true };
+let UI = { tab:'expenses', syncing:false, lastSync:null, loading:true, showTrip: !TRIP_ID };
 let M  = { type:null, fname:'', edesc:'', eamt:'', epayer:'', esplit:'equal', csplits:{} };
 
 // ===== TOAST =====
@@ -100,14 +102,17 @@ function toast(msg) {
 
 // ===== FIREBASE API =====
 async function loadDB() {
+  if (!TRIP_ID) { UI.loading=false; UI.showTrip=true; renderApp(); return; }
   try {
-    const r = await fetch(FB);
+    const r = await fetch(FB());
     if (r.ok) {
       const d = await r.json();
       if (d) {
         DB.friends     = d.friends     || [];
         DB.expenses    = d.expenses    || [];
         DB.settlements = d.settlements || [];
+      } else {
+        DB = { friends:[], expenses:[], settlements:[] };
       }
       UI.lastSync = new Date().toLocaleTimeString();
     }
@@ -119,7 +124,7 @@ async function loadDB() {
 async function saveDB() {
   UI.syncing = true; updateStatus();
   try {
-    const r = await fetch(FB, {
+    const r = await fetch(FB(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(DB)
@@ -141,21 +146,41 @@ function updateStatus() {
 
 // ===== AUTO REFRESH =====
 setInterval(async () => {
-  if (M.type) return; // don't refresh while modal is open
+  if (M.type || !TRIP_ID) return;
   try {
-    const r = await fetch(FB);
+    const r = await fetch(FB());
     if (r.ok) {
       const d = await r.json();
       if (d) {
-        DB.friends     = d.friends     || [];
-        DB.expenses    = d.expenses    || [];
-        DB.settlements = d.settlements || [];
-        UI.lastSync    = new Date().toLocaleTimeString();
+        DB.friends=d.friends||[]; DB.expenses=d.expenses||[]; DB.settlements=d.settlements||[];
+        UI.lastSync=new Date().toLocaleTimeString();
         renderApp();
       }
     }
   } catch(e) {}
 }, 10000);
+
+// ===== TRIP MANAGEMENT =====
+function setTrip() {
+  const val = document.getElementById('inp-trip') ? document.getElementById('inp-trip').value.trim().toUpperCase().replace(/\s+/g,'-') : '';
+  if (!val) { toast('Enter a Trip ID!'); return; }
+  TRIP_ID = val;
+  localStorage.setItem('pachaax-trip', TRIP_ID);
+  DB = { friends:[], expenses:[], settlements:[] };
+  UI.showTrip = false;
+  UI.loading = true;
+  renderApp();
+  loadDB();
+}
+
+function switchTrip() {
+  TRIP_ID = '';
+  localStorage.removeItem('pachaax-trip');
+  DB = { friends:[], expenses:[], settlements:[] };
+  UI.showTrip = true;
+  UI.loading = false;
+  renderApp();
+}
 
 // ===== CALCULATIONS =====
 function getBalances() {
@@ -280,13 +305,20 @@ function renderApp() {
   else if (UI.tab==='thailand')   body = tabThailand();
 
   app.innerHTML = `
+  ${UI.showTrip ? tripScreen() : `
   <div class="header">
     <div class="header-row">
       <div>
         <h1>💰 Pachaax Expenses</h1>
         <p id="sync-status">${UI.syncing?'☁️ Syncing...':UI.lastSync?'✅ Synced: '+UI.lastSync:'Real-time shared tracker'}</p>
       </div>
-      <button class="refresh-btn" onclick="refreshNow()">🔄 Refresh</button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div style="background:rgba(0,0,0,0.2);padding:5px 8px;border-radius:8px;font-size:11px;font-weight:700;color:white">
+          🏷️ ${TRIP_ID}
+        </div>
+        <button class="refresh-btn" onclick="refreshNow()">🔄</button>
+        <button class="refresh-btn" onclick="switchTrip()" title="Switch Trip">🔀</button>
+      </div>
     </div>
   </div>
   <div class="tabs">
@@ -297,10 +329,37 @@ function renderApp() {
   </div>
   <div class="content">${body}</div>
   ${M.type==='friend' ? modalFriend() : M.type==='expense' ? modalExpense() : ''}
-  <div class="footer">💡 Real-time sync via Firebase! Share your GitHub link with the group.</div>`;
+  <div class="footer">💡 Trip: ${TRIP_ID} | Syncs every 10s across all devices!</div>
+  `}
+  `;
 }
 
 // ===== TABS =====
+function tripScreen() {
+  return `
+  <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:linear-gradient(135deg,#fff7ed,#fef3c7)">
+    <div style="font-size:48px;margin-bottom:12px">💰</div>
+    <h1 style="font-size:26px;font-weight:900;color:#92400e;margin-bottom:6px">Pachaax Expenses</h1>
+    <p style="color:#6b7280;font-size:14px;margin-bottom:32px;text-align:center">Enter a Trip ID to load or create a trip.<br>Share the same ID with your group!</p>
+    <div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;box-shadow:0 4px 20px rgba(0,0,0,0.1)">
+      <label style="font-weight:700;font-size:13px;color:#374151;display:block;margin-bottom:6px">🏷️ TRIP ID</label>
+      <input id="inp-trip" class="field" type="text" placeholder="e.g. THAILAND-2025, GOA-TRIP"
+        style="text-transform:uppercase;letter-spacing:1px;font-weight:700"
+        onkeydown="if(event.key==='Enter')setTrip()">
+      <button class="btn btn-primary" onclick="setTrip()" style="width:100%;padding:14px;font-size:15px">
+        🚀 Enter Trip
+      </button>
+      <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:10px;font-size:12px;color:#92400e;line-height:1.6">
+        <strong>How it works:</strong><br>
+        ✅ Create a new trip → Enter any unique ID<br>
+        ✅ Join existing trip → Enter the same ID<br>
+        ✅ Each trip has its own friends & expenses<br>
+        ✅ Switch trips anytime using 🔀 button
+      </div>
+    </div>
+  </div>`;
+}
+
 function tabExpenses() {
   let h=`<div class="sec-header"><h2>All Expenses</h2>
     <button class="btn btn-primary" onclick="openExpense()" ${!DB.friends.length?'disabled':''}>+ Add</button></div>`;
