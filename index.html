@@ -161,9 +161,9 @@ async function faDel(path)        { var r=await fetch(aurl(path),{method:'DELETE
 
 // ============ AUTH ============
 async function doLogin() {
-  authErr=''; authLoading=true; render();
   var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
   var p=(document.getElementById('ap')||{value:''}).value;
+  authErr=''; authLoading=true; render();
   if(!u||!p){authErr='Fill all fields!';authLoading=false;render();return;}
   try {
     var rec = await faGet(u);
@@ -180,11 +180,11 @@ async function doLogin() {
 }
 
 async function doRegister() {
-  authErr=''; authLoading=true; render();
   var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
   var dn=(document.getElementById('adn')||{value:''}).value.trim();
   var p=(document.getElementById('ap')||{value:''}).value;
   var p2=(document.getElementById('ap2')||{value:''}).value;
+  authErr=''; authLoading=true; render();
   if(!u||!dn||!p||!p2){authErr='Fill all fields!';authLoading=false;render();return;}
   if(!/^[a-z0-9_]{3,20}$/.test(u)){authErr='Username: 3-20 chars, letters/numbers/_ only.';authLoading=false;render();return;}
   if(p.length<6){authErr='Password must be at least 6 characters.';authLoading=false;render();return;}
