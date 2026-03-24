@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Expense Track & Settlement</title>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff7ed;min-height:100vh;padding-bottom:60px}
@@ -117,6 +118,47 @@ button{cursor:pointer;border:none;font-family:inherit}
 const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
 const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
+// ============ EMAILJS CONFIG ============
+// 1. Sign up free at https://emailjs.com
+// 2. Add an Email Service (Gmail, Outlook, etc.) → copy the Service ID
+// 3. Create two Email Templates (see comments below) → copy their Template IDs
+// 4. Go to Account → Public Key → copy it here
+const EJS = {
+  publicKey:          'YOUR_PUBLIC_KEY',       // EmailJS account public key
+  serviceId:          'YOUR_SERVICE_ID',        // e.g. 'service_abc123'
+  verifyTemplateId:   'YOUR_VERIFY_TEMPLATE',   // template for email verification
+  resetTemplateId:    'YOUR_RESET_TEMPLATE',    // template for password reset
+};
+// ---- TEMPLATE VARIABLES (use these in your EmailJS templates) ----
+// Verification template variables: {{to_email}}, {{to_name}}, {{verify_link}}, {{app_name}}
+// Reset template      variables: {{to_email}}, {{to_name}}, {{reset_link}},  {{app_name}}
+let ejsReady = false;
+function initEJS(){
+  if(!EJS.publicKey||EJS.publicKey==='YOUR_PUBLIC_KEY'){ return; }
+  try{ emailjs.init({publicKey: EJS.publicKey}); ejsReady=true; }
+  catch(e){ console.warn('EmailJS init failed',e); }
+}
+
+async function sendEmail(templateId, toEmail, toName, link){
+  if(!ejsReady){
+    console.warn('EmailJS not configured — email not sent.');
+    return false;
+  }
+  try{
+    await emailjs.send(EJS.serviceId, templateId, {
+      to_email:    toEmail,
+      to_name:     toName,
+      verify_link: link,   // used by verify template
+      reset_link:  link,   // used by reset template
+      app_name:    'Expense Track & Settlement',
+    });
+    return true;
+  }catch(e){
+    console.error('EmailJS send error', e);
+    return false;
+  }
+}
+
 // ============ HELPERS ============
 // Firebase keys cannot contain '.' — encode emails
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
@@ -216,7 +258,9 @@ async function doRegister(){
     var h=await hashPwd(p);
     var vToken=genToken();
     await faSet(eKey(u),{passwordHash:h,role:isFirst?'admin':'user',displayName:dn,banned:false,verified:false,verifyToken:vToken,createdAt:new Date().toISOString()});
-    pendingVerify={email:u,token:vToken};
+    var vLink=window.location.origin+window.location.pathname+'?verify='+encodeURIComponent(u)+'&token='+vToken;
+    var emailSent=await sendEmail(EJS.verifyTemplateId, u, dn, vLink);
+    pendingVerify={email:u,token:vToken,emailSent};
     localStorage.setItem('px-pending-verify',JSON.stringify(pendingVerify));
     authErr=''; authLoading=false; authMode='login';
     render();
@@ -249,8 +293,10 @@ async function doForgotPassword(){
     var rToken=genToken();
     rec.resetToken=rToken; rec.resetAt=Date.now();
     await faSet(eKey(u),rec);
+    var rLink=window.location.origin+window.location.pathname+'?reset='+encodeURIComponent(u)+'&rtoken='+rToken;
+    var emailSent=await sendEmail(EJS.resetTemplateId, u, rec.displayName||u, rLink);
     authLoading=false;
-    pendingVerify={email:u,token:null,resetToken:rToken,isReset:true};
+    pendingVerify={email:u,token:null,resetToken:rToken,isReset:true,emailSent};
     render();
   }catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
 }
@@ -551,6 +597,7 @@ function authScreen(){
 // ============ VERIFY SCREEN ============
 function verifyScreen(){
   var isReset=pendingVerify&&pendingVerify.isReset;
+  var emailSent=pendingVerify&&pendingVerify.emailSent;
   var link='';
   if(pendingVerify){
     var base=window.location.origin+window.location.pathname;
@@ -560,18 +607,34 @@ function verifyScreen(){
       link=base+'?verify='+encodeURIComponent(pendingVerify.email)+'&token='+pendingVerify.token;
     }
   }
+  var emailNote = emailSent
+    ? `<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:9px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#15803d;font-weight:600">
+        📬 Email sent to <strong>${pendingVerify&&pendingVerify.email||''}</strong>! Check your inbox (and spam folder).
+       </div>`
+    : `<div style="background:#fef9c3;border:2px solid #fbbf24;border-radius:9px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#92400e;font-weight:600">
+        ⚠️ Email delivery not configured. Use the link below manually.
+       </div>`;
+
   return `<div class="verify-screen">
     <div class="verify-box">
       <div style="font-size:48px;margin-bottom:12px">${isReset?'🔑':'📧'}</div>
       <h2 style="font-size:20px;font-weight:900;color:#1f2937;margin-bottom:8px">${isReset?'Reset Your Password':'Verify Your Email'}</h2>
-      <p style="color:#6b7280;font-size:13px;margin-bottom:16px">
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px">
         ${isReset
-          ?'Copy the link below and open it to reset your password for <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>.'
-          :'Copy the verification link below and open it in any browser to activate your account for <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>.'}
+          ?'A password reset link has been sent to <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>.'
+          :'A verification link has been sent to <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>. Click it to activate your account.'}
       </p>
-      ${link?`<div class="copy-link" onclick="copyText('${link}')">${link}</div>
-      <button class="btn primary" onclick="copyText('${link}')" style="width:100%;margin-bottom:10px">📋 Copy ${isReset?'Reset':'Verification'} Link</button>
-      <button class="btn green" onclick="window.open('${link}','_blank')" style="width:100%;margin-bottom:12px">🔗 Open Link Now</button>`:''}
+      ${emailNote}
+      <details style="text-align:left;margin-bottom:14px">
+        <summary style="font-size:12px;font-weight:700;color:#6b7280;cursor:pointer;user-select:none">🔗 Show manual link (fallback)</summary>
+        <div style="margin-top:8px">
+          <div class="copy-link" onclick="copyText('${link}')">${link}</div>
+          <div style="display:flex;gap:7px;margin-top:6px">
+            <button class="btn secondary sm" onclick="copyText('${link}')" style="flex:1">📋 Copy</button>
+            <button class="btn primary sm" onclick="window.open('${link}','_blank')" style="flex:1">🔗 Open</button>
+          </div>
+        </div>
+      </details>
       <button onclick="pendingVerify=null;localStorage.removeItem('px-pending-verify');authMode='login';render()" style="background:none;color:#6b7280;font-size:12px;font-weight:600">← Back to Login</button>
     </div>
   </div>`;
@@ -871,6 +934,7 @@ function mAccess(){
 
 // ============ INIT — check URL for verify/reset tokens ============
 (function init(){
+  initEJS();
   var params=new URLSearchParams(window.location.search);
   var verifyEmail=params.get('verify');
   var verifyToken=params.get('token');
