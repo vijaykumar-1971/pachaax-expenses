@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Expense Track & Settlement</title>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff7ed;min-height:100vh;padding-bottom:60px}
@@ -118,53 +117,10 @@ button{cursor:pointer;border:none;font-family:inherit}
 const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
 const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
-// ============ EMAILJS CONFIG ============
-// 1. Sign up free at https://emailjs.com
-// 2. Add an Email Service (Gmail, Outlook, etc.) → copy the Service ID
-// 3. Create two Email Templates (see comments below) → copy their Template IDs
-// 4. Go to Account → Public Key → copy it here
-const EJS = {
-  publicKey:          'wvK95DlAlD6E7ld7H',       // EmailJS account public key
-  serviceId:          'service_pph2qsj',        // e.g. 'service_abc123'
-  verifyTemplateId:   'template_rmfrh86',   // template for email verification
-  resetTemplateId:    'template_io9w5ac',    // template for password reset
-};
-// ---- TEMPLATE VARIABLES (use these in your EmailJS templates) ----
-// Verification template variables: {{to_email}}, {{to_name}}, {{verify_link}}, {{app_name}}
-// Reset template      variables: {{to_email}}, {{to_name}}, {{reset_link}},  {{app_name}}
-let ejsReady = false;
-function initEJS(){
-  if(!EJS.publicKey||EJS.publicKey==='YOUR_PUBLIC_KEY'){ return; }
-  try{ emailjs.init({publicKey: EJS.publicKey}); ejsReady=true; }
-  catch(e){ console.warn('EmailJS init failed',e); }
-}
-
-async function sendEmail(templateId, toEmail, toName, link){
-  if(!ejsReady){
-    console.warn('EmailJS not configured — email not sent.');
-    return false;
-  }
-  try{
-    await emailjs.send(EJS.serviceId, templateId, {
-      to_email:    toEmail,
-      to_name:     toName,
-      verify_link: link,   // used by verify template
-      reset_link:  link,   // used by reset template
-      app_name:    'Expense Track & Settlement',
-    });
-    return true;
-  }catch(e){
-    console.error('EmailJS send error', e);
-    return false;
-  }
-}
-
 // ============ HELPERS ============
-// Firebase keys cannot contain '.' — encode emails
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
 function eFromKey(k){ return k.replace(/__/g,'.'); }
 function isEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
-function genToken(){ return Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b=>b.toString(16).padStart(2,'0')).join(''); }
 function initials(s){ return (s||'?')[0].toUpperCase(); }
 
 // ============ STATE ============
@@ -174,24 +130,23 @@ let trips       = [];
 let tab         = 'expenses';
 let syncing     = false;
 let lastSync    = '';
-let modal       = null; // null | 'friend' | 'expense' | 'access'
+let modal       = null;
 let editId      = null;
 let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={};
 
 // --- AUTH ---
-let currentUser  = JSON.parse(localStorage.getItem('px-user') || 'null');
-let authMode     = 'login';   // 'login' | 'register' | 'forgot' | 'reset'
-let authErr      = '';
-let authOk       = '';
-let authLoading  = false;
-let adminSubTab  = 'users';
-let allUsers     = [];
-let allTrips     = [];
-// pending verification: { email, token }
-let pendingVerify = JSON.parse(localStorage.getItem('px-pending-verify') || 'null');
-// reset flow
-let resetTokenLocal = ''; // token for reset (loaded from URL)
-let resetEmailLocal = ''; // email for reset (loaded from URL)
+let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
+let authMode    = 'login';   // 'login' | 'register' | 'forgot' | 'reset' | 'pending'
+let authErr     = '';
+let authOk      = '';
+let authLoading = false;
+let adminSubTab = 'users';
+let allUsers    = [];
+let allTrips    = [];
+// reset flow (URL-based)
+let resetTokenLocal = '';
+let resetEmailLocal = '';
+let resetOtpForDisplay = '';
 
 // ============ TOAST ============
 function toast(msg){
@@ -227,13 +182,18 @@ async function doLogin(){
   try{
     var rec=await faGet(eKey(u));
     if(!rec){authErr='No account found. Please register.';authLoading=false;render();return;}
-    if(!rec.verified){authErr='Email not verified. Check your verification link below.';authLoading=false;pendingVerify={email:u,token:rec.verifyToken};localStorage.setItem('px-pending-verify',JSON.stringify(pendingVerify));render();return;}
-    if(rec.banned){authErr='Your account has been banned by an admin.';authLoading=false;render();return;}
+    if(rec.banned){authErr='Your account has been suspended by an admin.';authLoading=false;render();return;}
+    if(!rec.approved){
+      // show pending screen
+      authLoading=false; authMode='pending';
+      localStorage.setItem('px-pending-email', u);
+      render(); return;
+    }
     var h=await hashPwd(p);
     if(h!==rec.passwordHash){authErr='Incorrect password.';authLoading=false;render();return;}
     currentUser={email:u,role:rec.role||'user',displayName:rec.displayName||u};
     localStorage.setItem('px-user',JSON.stringify(currentUser));
-    pendingVerify=null; localStorage.removeItem('px-pending-verify');
+    localStorage.removeItem('px-pending-email');
     authErr=''; authLoading=false;
     toast('👋 Welcome back, '+currentUser.displayName+'!');
     render(); loadTrips();
@@ -256,30 +216,27 @@ async function doRegister(){
     var allR=await fetch(FB_AUTH+'.json?shallow=true'); var allD=await allR.json();
     var isFirst=!allD||Object.keys(allD).length===0;
     var h=await hashPwd(p);
-    var vToken=genToken();
-    await faSet(eKey(u),{passwordHash:h,role:isFirst?'admin':'user',displayName:dn,banned:false,verified:false,verifyToken:vToken,createdAt:new Date().toISOString()});
-    var vLink=window.location.origin+window.location.pathname+'?verify='+encodeURIComponent(u)+'&token='+vToken;
-    var emailSent=await sendEmail(EJS.verifyTemplateId, u, dn, vLink);
-    pendingVerify={email:u,token:vToken,emailSent};
-    localStorage.setItem('px-pending-verify',JSON.stringify(pendingVerify));
-    authErr=''; authLoading=false; authMode='login';
-    render();
+    // First user = admin, auto-approved. Others need admin approval.
+    await faSet(eKey(u),{
+      passwordHash:h, role:isFirst?'admin':'user',
+      displayName:dn, banned:false,
+      approved:isFirst,          // admin auto-approved, others pending
+      approvedAt: isFirst?new Date().toISOString():'',
+      requestedAt:new Date().toISOString()
+    });
+    authLoading=false;
+    if(isFirst){
+      // admin logs in directly
+      currentUser={email:u,role:'admin',displayName:dn};
+      localStorage.setItem('px-user',JSON.stringify(currentUser));
+      toast('👑 Welcome Admin '+dn+'! You\'re all set.');
+      authErr=''; render(); loadTrips();
+    } else {
+      // regular user → pending screen
+      localStorage.setItem('px-pending-email', u);
+      authMode='pending'; render();
+    }
   }catch(e){authErr='Connection error. Please try again.';authLoading=false;render();}
-}
-
-async function doVerify(email,token){
-  try{
-    var rec=await faGet(eKey(email));
-    if(!rec){toast('⚠️ Account not found');return;}
-    if(rec.verifyToken!==token){toast('⚠️ Invalid or expired verification link.');return;}
-    rec.verified=true; rec.verifyToken='';
-    await faSet(eKey(email),rec);
-    pendingVerify=null; localStorage.removeItem('px-pending-verify');
-    // clean URL
-    window.history.replaceState({},'',window.location.pathname);
-    authOk='✅ Email verified! You can now log in.';
-    authMode='login'; authErr=''; render();
-  }catch(e){toast('⚠️ Verification failed. Try again.');}
 }
 
 async function doForgotPassword(){
@@ -290,33 +247,34 @@ async function doForgotPassword(){
   try{
     var rec=await faGet(eKey(u));
     if(!rec){authErr='No account with this email.';authLoading=false;render();return;}
-    var rToken=genToken();
-    rec.resetToken=rToken; rec.resetAt=Date.now();
+    if(!rec.approved){authErr='Your account is pending admin approval.';authLoading=false;render();return;}
+    // Generate a short numeric OTP stored in Firebase; user pastes it in
+    var otp=String(Math.floor(100000+Math.random()*900000));
+    rec.resetOtp=otp; rec.resetAt=Date.now();
     await faSet(eKey(u),rec);
-    var rLink=window.location.origin+window.location.pathname+'?reset='+encodeURIComponent(u)+'&rtoken='+rToken;
-    var emailSent=await sendEmail(EJS.resetTemplateId, u, rec.displayName||u, rLink);
     authLoading=false;
-    pendingVerify={email:u,token:null,resetToken:rToken,isReset:true,emailSent};
+    // Show OTP to admin — user must contact admin to get it
+    // For now store in state so admin can see it in admin panel
+    authOk=''; authMode='reset'; resetEmailLocal=u; resetOtpForDisplay=otp;
     render();
   }catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
 }
 
 async function doResetPassword(){
+  var otp=(document.getElementById('rotp')||{value:''}).value.trim();
   var np=(document.getElementById('ap')||{value:''}).value;
   var np2=(document.getElementById('ap2')||{value:''}).value;
   authErr=''; authLoading=true; render();
-  if(!np||!np2){authErr='Please fill all fields.';authLoading=false;render();return;}
+  if(!otp||!np||!np2){authErr='Please fill all fields.';authLoading=false;render();return;}
   if(np.length<6){authErr='Password must be at least 6 characters.';authLoading=false;render();return;}
   if(np!==np2){authErr='Passwords do not match.';authLoading=false;render();return;}
   try{
     var rec=await faGet(eKey(resetEmailLocal));
-    if(!rec||rec.resetToken!==resetTokenLocal){authErr='Invalid or expired reset link.';authLoading=false;render();return;}
-    // tokens expire after 1 hour
-    if(Date.now()-rec.resetAt>3600000){authErr='Reset link expired. Request a new one.';authLoading=false;render();return;}
-    rec.passwordHash=await hashPwd(np); rec.resetToken=''; rec.resetAt=0;
+    if(!rec||rec.resetOtp!==otp){authErr='Invalid OTP. Check with your admin.';authLoading=false;render();return;}
+    if(Date.now()-rec.resetAt>3600000){authErr='OTP expired (1 hour). Request a new one.';authLoading=false;render();return;}
+    rec.passwordHash=await hashPwd(np); rec.resetOtp=''; rec.resetAt=0;
     await faSet(eKey(resetEmailLocal),rec);
-    resetTokenLocal=''; resetEmailLocal='';
-    window.history.replaceState({},'',window.location.pathname);
+    resetEmailLocal=''; resetOtpForDisplay='';
     authOk='✅ Password reset! Please log in.'; authMode='login'; authErr=''; authLoading=false;
     render();
   }catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
@@ -363,7 +321,7 @@ async function doGrantAccess(){
   try{
     var rec=await faGet(eKey(email));
     if(!rec){toast('⚠️ No registered user with this email.');return;}
-    if(!rec.verified){toast('⚠️ That user hasn\'t verified their email yet.');return;}
+    if(!rec.approved){toast('⚠️ That user\'s account is pending admin approval.');return;}
     var members=db.meta.members||[];
     if(members.indexOf(email)!==-1){toast('Already has access.');return;}
     members.push(email);
@@ -415,6 +373,31 @@ async function doPromoteUser(username){
   if(!confirm('Make '+eFromKey(username)+' an admin?'))return;
   try{var rec=await faGet(username);if(!rec)return;rec.role='admin';await faSet(username,rec);var idx=allUsers.findIndex(u=>u.username===username);if(idx!==-1)allUsers[idx].role='admin';toast('👑 Promoted to admin');render();}
   catch(e){toast('⚠️ Failed');}
+}
+async function doApproveUser(username){
+  try{
+    var rec=await faGet(username); if(!rec)return;
+    rec.approved=true; rec.approvedAt=new Date().toISOString();
+    await faSet(username,rec);
+    var idx=allUsers.findIndex(u=>u.username===username);
+    if(idx!==-1){allUsers[idx].approved=true; allUsers[idx].approvedAt=rec.approvedAt;}
+    toast('✅ '+eFromKey(username)+' approved!'); render();
+  }catch(e){toast('⚠️ Failed');}
+}
+async function doRejectUser(username){
+  if(!confirm('Reject and delete account for '+eFromKey(username)+'?'))return;
+  try{
+    await faDel(username);
+    allUsers=allUsers.filter(u=>u.username!==username);
+    toast('🗑️ Account rejected & deleted'); render();
+  }catch(e){toast('⚠️ Failed');}
+}
+function doAdminShowOtp(username){
+  // Show the reset OTP stored on the user record so admin can share it
+  var u=allUsers.find(u=>u.username===username);
+  if(!u||!u.resetOtp){ toast('No pending reset OTP for this user.'); return; }
+  var expired=u.resetAt&&(Date.now()-u.resetAt>3600000);
+  alert((expired?'⚠️ EXPIRED — ':'✅ Active OTP for ')+eFromKey(username)+':\n\n'+u.resetOtp+'\n\n'+(expired?'User must request a new one.':'Share this code with the user. Valid 1 hour.'));
 }
 async function doAdminDeleteTrip(id){
   if(!confirm('Delete trip '+id+'? All data will be lost!'))return;
@@ -499,14 +482,9 @@ function render(){
   var root=document.getElementById('root');
   if(!root)return;
 
-  // Password reset via URL
-  if(resetTokenLocal&&resetEmailLocal&&authMode==='reset'){
-    root.innerHTML=resetScreen(); return;
-  }
-  // Not logged in
   if(!currentUser){
-    // Pending verification
-    if(pendingVerify){root.innerHTML=verifyScreen();return;}
+    if(authMode==='pending') { root.innerHTML=pendingScreen(); return; }
+    if(authMode==='reset')   { root.innerHTML=resetScreen();   return; }
     root.innerHTML=authScreen(); return;
   }
   if(currentUser.banned){root.innerHTML=bannedScreen();return;}
@@ -570,91 +548,90 @@ function authScreen(){
       ${!isForgot?`<div class="auth-tabs">
         <button class="auth-tab ${isLogin?'on':''}" onclick="authMode='login';authErr='';authOk='';render()">Login</button>
         <button class="auth-tab ${!isLogin?'on':''}" onclick="authMode='register';authErr='';authOk='';render()">Register</button>
-      </div>`:`<div style="font-weight:900;font-size:16px;margin-bottom:14px;color:#1f2937">🔑 Reset Password</div>`}
+      </div>`:`<div style="font-weight:900;font-size:16px;margin-bottom:14px;color:#1f2937">🔑 Forgot Password</div>`}
       ${authErr?`<div class="err-box">⚠️ ${authErr}</div>`:''}
       ${authOk?`<div class="ok-box">${authOk}</div>`:''}
       ${!isLogin&&!isForgot?`<span class="lbl">Display Name</span>
       <input id="adn" class="f" type="text" placeholder="Your name (e.g. Ravi)" autocomplete="name">`:''}
       <span class="lbl">Email Address</span>
-      <input id="au" class="f" type="email" placeholder="you@example.com" autocomplete="email" onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}">
+      <input id="au" class="f" type="email" placeholder="you@example.com" autocomplete="email"
+        onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}">
       ${!isForgot?`<span class="lbl">Password</span>
-      <input id="ap" class="f" type="password" placeholder="••••••••" autocomplete="${isLogin?'current-password':'new-password'}" onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':'doRegister()'}">`:``}
+      <input id="ap" class="f" type="password" placeholder="••••••••"
+        autocomplete="${isLogin?'current-password':'new-password'}"
+        onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':'doRegister()'}">`:``}
       ${!isLogin&&!isForgot?`<span class="lbl">Confirm Password</span>
-      <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">`:``}
-      <button class="btn primary" onclick="${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}" style="width:100%;padding:13px;font-size:14px;margin-top:4px" ${authLoading?'disabled':''}>
-        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📧 Send Reset Link':'🚀 Create Account')}
+      <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password"
+        onkeydown="if(event.key==='Enter')doRegister()">`:``}
+      <button class="btn primary" onclick="${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}"
+        style="width:100%;padding:13px;font-size:14px;margin-top:4px" ${authLoading?'disabled':''}>
+        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📤 Request OTP':'🚀 Create Account')}
       </button>
       ${isLogin?`<div style="display:flex;justify-content:space-between;margin-top:12px">
         <button onclick="authMode='register';authErr='';authOk='';render()" style="background:none;color:#d97706;font-weight:700;font-size:11px">No account? Register →</button>
         <button onclick="authMode='forgot';authErr='';authOk='';render()" style="background:none;color:#6b7280;font-weight:700;font-size:11px">Forgot password?</button>
       </div>`:''}
-      ${isForgot?`<div style="text-align:center;margin-top:12px"><button onclick="authMode='login';authErr='';authOk='';render()" style="background:none;color:#6b7280;font-weight:700;font-size:11px">← Back to Login</button></div>`:''}
-      ${!isLogin&&!isForgot?`<p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">First account registered becomes <strong>Admin 👑</strong></p>`:''}
+      ${isForgot?`<div style="text-align:center;margin-top:12px">
+        <button onclick="authMode='login';authErr='';authOk='';render()" style="background:none;color:#6b7280;font-weight:700;font-size:11px">← Back to Login</button>
+      </div>`:''}
+      ${!isLogin&&!isForgot?`<p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">
+        First account registered becomes <strong>Admin 👑</strong></p>`:''}
     </div>
   </div>`;
 }
 
-// ============ VERIFY SCREEN ============
-function verifyScreen(){
-  var isReset=pendingVerify&&pendingVerify.isReset;
-  var emailSent=pendingVerify&&pendingVerify.emailSent;
-  var link='';
-  if(pendingVerify){
-    var base=window.location.origin+window.location.pathname;
-    if(isReset){
-      link=base+'?reset='+encodeURIComponent(pendingVerify.email)+'&rtoken='+pendingVerify.resetToken;
-    }else{
-      link=base+'?verify='+encodeURIComponent(pendingVerify.email)+'&token='+pendingVerify.token;
-    }
-  }
-  var emailNote = emailSent
-    ? `<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:9px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#15803d;font-weight:600">
-        📬 Email sent to <strong>${pendingVerify&&pendingVerify.email||''}</strong>! Check your inbox (and spam folder).
-       </div>`
-    : `<div style="background:#fef9c3;border:2px solid #fbbf24;border-radius:9px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#92400e;font-weight:600">
-        ⚠️ Email delivery not configured. Use the link below manually.
-       </div>`;
-
-  return `<div class="verify-screen">
-    <div class="verify-box">
-      <div style="font-size:48px;margin-bottom:12px">${isReset?'🔑':'📧'}</div>
-      <h2 style="font-size:20px;font-weight:900;color:#1f2937;margin-bottom:8px">${isReset?'Reset Your Password':'Verify Your Email'}</h2>
-      <p style="color:#6b7280;font-size:13px;margin-bottom:14px">
-        ${isReset
-          ?'A password reset link has been sent to <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>.'
-          :'A verification link has been sent to <strong>'+(pendingVerify&&pendingVerify.email||'')+'</strong>. Click it to activate your account.'}
-      </p>
-      ${emailNote}
-      <details style="text-align:left;margin-bottom:14px">
-        <summary style="font-size:12px;font-weight:700;color:#6b7280;cursor:pointer;user-select:none">🔗 Show manual link (fallback)</summary>
-        <div style="margin-top:8px">
-          <div class="copy-link" onclick="copyText('${link}')">${link}</div>
-          <div style="display:flex;gap:7px;margin-top:6px">
-            <button class="btn secondary sm" onclick="copyText('${link}')" style="flex:1">📋 Copy</button>
-            <button class="btn primary sm" onclick="window.open('${link}','_blank')" style="flex:1">🔗 Open</button>
-          </div>
+// ============ PENDING APPROVAL SCREEN ============
+function pendingScreen(){
+  var email=localStorage.getItem('px-pending-email')||'';
+  return `<div class="auth-screen">
+    <div style="font-size:52px;margin-bottom:12px">⏳</div>
+    <div class="auth-box" style="text-align:center">
+      <div style="font-size:32px;margin-bottom:10px">🔔</div>
+      <h2 style="font-size:19px;font-weight:900;color:#1f2937;margin-bottom:8px">Waiting for Admin Approval</h2>
+      <div style="background:#fef9c3;border:2px solid #fbbf24;border-radius:10px;padding:12px 14px;margin-bottom:16px;text-align:left">
+        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">📬 Request Submitted!</div>
+        <div style="font-size:12px;color:#78350f;line-height:1.6">
+          Your registration request for <strong>${email}</strong> has been sent to the admin for approval.
+          You'll be able to log in once the admin approves your account.
         </div>
-      </details>
-      <button onclick="pendingVerify=null;localStorage.removeItem('px-pending-verify');authMode='login';render()" style="background:none;color:#6b7280;font-size:12px;font-weight:600">← Back to Login</button>
+      </div>
+      <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:#1e40af;text-align:left;line-height:1.6">
+        💡 <strong>What happens next?</strong><br>
+        The admin will see your request in the <strong>👑 Admin Panel → Users</strong> section
+        and approve or reject it. Come back here and try logging in after approval.
+      </div>
+      <button class="btn primary" onclick="authMode='login';authErr='';authOk='';render()" style="width:100%;margin-bottom:8px">🔄 Check Approval Status</button>
+      <button onclick="localStorage.removeItem('px-pending-email');authMode='login';render()" style="background:none;color:#9ca3af;font-size:11px;font-weight:600">← Back to Login</button>
     </div>
   </div>`;
 }
 
-// ============ RESET PASSWORD SCREEN ============
+// ============ RESET PASSWORD SCREEN (OTP from admin) ============
 function resetScreen(){
-  return `<div class="verify-screen">
-    <div class="verify-box">
-      <div style="font-size:48px;margin-bottom:12px">🔑</div>
-      <h2 style="font-size:20px;font-weight:900;color:#1f2937;margin-bottom:4px">Set New Password</h2>
-      <p style="color:#6b7280;font-size:12px;margin-bottom:16px">For <strong>${resetEmailLocal}</strong></p>
+  return `<div class="auth-screen">
+    <div class="auth-box">
+      <div style="font-size:40px;text-align:center;margin-bottom:10px">🔑</div>
+      <h2 style="font-size:18px;font-weight:900;color:#1f2937;margin-bottom:4px">Reset Password</h2>
+      <p style="font-size:12px;color:#6b7280;margin-bottom:14px">
+        Enter the OTP code given to you by your admin, then set a new password.
+      </p>
       ${authErr?`<div class="err-box">⚠️ ${authErr}</div>`:''}
+      <span class="lbl">Email</span>
+      <input class="f" type="email" value="${resetEmailLocal}" readonly style="background:#f3f4f6;color:#6b7280">
+      <span class="lbl">OTP Code (from Admin)</span>
+      <input id="rotp" class="f" type="text" inputmode="numeric" placeholder="e.g. 482910" maxlength="6"
+        onkeydown="if(event.key==='Enter')doResetPassword()">
       <span class="lbl">New Password</span>
       <input id="ap" class="f" type="password" placeholder="••••••••" autocomplete="new-password">
       <span class="lbl">Confirm New Password</span>
-      <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doResetPassword()">
+      <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password"
+        onkeydown="if(event.key==='Enter')doResetPassword()">
       <button class="btn primary" onclick="doResetPassword()" style="width:100%;padding:13px;margin-top:4px" ${authLoading?'disabled':''}>
         ${authLoading?'⏳ Saving...':'🔒 Reset Password'}
       </button>
+      <div style="text-align:center;margin-top:10px">
+        <button onclick="authMode='login';authErr='';resetEmailLocal='';render()" style="background:none;color:#6b7280;font-size:11px;font-weight:600">← Back to Login</button>
+      </div>
     </div>
   </div>`;
 }
@@ -809,27 +786,76 @@ function tabAdmin(){
 
   if(adminSubTab==='users'){
     if(!allUsers.length) h+=`<div class="empty"><p>No users. Click Refresh.</p></div>`;
-    else h+=allUsers.map(u=>{
-      var isMe=u.email===currentUser.email;
-      var roleB=u.role==='admin'?`<span class="badge badge-admin">👑 Admin</span>`:`<span class="badge badge-user">👤 User</span>`;
-      var banB=u.banned?`<span class="badge badge-banned">🚫 Banned</span>`:'';
-      var verB=u.verified?'':`<span class="badge" style="background:#fef9c3;color:#854d0e">⚠️ Unverified</span>`;
-      return `<div class="user-card ${u.banned?'banned':''}">
-        <div class="av ${u.role==='admin'?'admin-av':''}">${initials(u.displayName||u.email)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:900;font-size:14px">${u.displayName||'—'} ${isMe?'<span style="font-size:10px;color:#d97706">(you)</span>':''}</div>
-          <div style="font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
-          <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">${roleB}${banB}${verB}</div>
-        </div>
-        ${!isMe?`<div class="user-actions">
-          ${u.banned
-            ?`<button class="btn green sm" onclick="doBanUser('${u.username}',false)">✅ Unban</button>`
-            :`<button class="btn danger sm" onclick="doBanUser('${u.username}',true)">🚫 Ban</button>`}
-          ${u.role!=='admin'?`<button class="btn sm" style="background:#f5f3ff;color:#6d28d9" onclick="doPromoteUser('${u.username}')">👑 Admin</button>`:''}
-          <button class="btn danger sm" onclick="doDeleteUser('${u.username}')">🗑️</button>
-        </div>`:'<div style="color:#9ca3af;font-size:11px;text-align:right">You</div>'}
-      </div>`;
-    }).join('');
+    else {
+      var pending=allUsers.filter(u=>!u.approved&&!u.banned);
+      var active =allUsers.filter(u=> u.approved&&!u.banned);
+      var banned =allUsers.filter(u=> u.banned);
+
+      // ---- PENDING APPROVALS (highlighted) ----
+      if(pending.length){
+        h+=`<div style="background:linear-gradient(135deg,#fef9c3,#fef3c7);border:2px solid #fbbf24;border-radius:12px;padding:12px 14px;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+            <span style="background:#ef4444;color:white;border-radius:20px;padding:2px 8px;font-size:11px">${pending.length}</span>
+            PENDING APPROVAL
+          </div>`;
+        h+=pending.map(u=>`
+          <div style="background:white;border-radius:10px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
+            <div class="av" style="width:36px;height:36px;font-size:14px">${initials(u.displayName||u.email)}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:800;font-size:13px">${u.displayName||'—'}</div>
+              <div style="font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
+              <div style="font-size:10px;color:#9ca3af;margin-top:2px">Requested: ${u.requestedAt?new Date(u.requestedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'}</div>
+            </div>
+            <div style="display:flex;gap:5px;flex-shrink:0">
+              <button class="btn green sm" onclick="doApproveUser('${u.username}')">✅ Approve</button>
+              <button class="btn danger sm" onclick="doRejectUser('${u.username}')">✗ Reject</button>
+            </div>
+          </div>`).join('');
+        h+=`</div>`;
+      }
+
+      // ---- ACTIVE USERS ----
+      if(active.length){
+        h+=`<div style="font-size:11px;font-weight:800;color:#6b7280;text-transform:uppercase;margin-bottom:8px">Active Users (${active.length})</div>`;
+        h+=active.map(u=>{
+          var isMe=u.email===currentUser.email;
+          var roleB=u.role==='admin'?`<span class="badge badge-admin">👑 Admin</span>`:`<span class="badge badge-user">👤 User</span>`;
+          var hasOtp=u.resetOtp&&(Date.now()-u.resetAt<3600000);
+          return `<div class="user-card">
+            <div class="av ${u.role==='admin'?'admin-av':''}">${initials(u.displayName||u.email)}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:900;font-size:14px">${u.displayName||'—'} ${isMe?'<span style="font-size:10px;color:#d97706">(you)</span>':''}</div>
+              <div style="font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
+              <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">${roleB}${hasOtp?`<span class="badge" style="background:#fef9c3;color:#854d0e;cursor:pointer" onclick="doAdminShowOtp('${u.username}')">🔑 OTP Pending</span>`:''}</div>
+            </div>
+            ${!isMe?`<div class="user-actions">
+              <button class="btn danger sm" onclick="doBanUser('${u.username}',true)">🚫 Ban</button>
+              ${u.role!=='admin'?`<button class="btn sm" style="background:#f5f3ff;color:#6d28d9" onclick="doPromoteUser('${u.username}')">👑</button>`:''}
+              ${hasOtp?`<button class="btn sm" style="background:#fef9c3;color:#92400e" onclick="doAdminShowOtp('${u.username}')">🔑 OTP</button>`:''}
+              <button class="btn danger sm" onclick="doDeleteUser('${u.username}')">🗑️</button>
+            </div>`:'<div style="color:#9ca3af;font-size:11px">You</div>'}
+          </div>`;
+        }).join('');
+      }
+
+      // ---- BANNED USERS ----
+      if(banned.length){
+        h+=`<div style="font-size:11px;font-weight:800;color:#6b7280;text-transform:uppercase;margin:12px 0 8px">Banned (${banned.length})</div>`;
+        h+=banned.map(u=>`
+          <div class="user-card banned">
+            <div class="av">${initials(u.displayName||u.email)}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:900;font-size:14px">${u.displayName||'—'}</div>
+              <div style="font-size:11px;color:#6b7280">${u.email}</div>
+              <span class="badge badge-banned">🚫 Banned</span>
+            </div>
+            <div class="user-actions">
+              <button class="btn green sm" onclick="doBanUser('${u.username}',false)">✅ Unban</button>
+              <button class="btn danger sm" onclick="doDeleteUser('${u.username}')">🗑️</button>
+            </div>
+          </div>`).join('');
+      }
+    }
   } else {
     if(!allTrips.length) h+=`<div class="empty"><p>No trips. Click Refresh.</p></div>`;
     else h+=allTrips.map(t=>{
@@ -932,28 +958,10 @@ function mAccess(){
   </div>`;
 }
 
-// ============ INIT — check URL for verify/reset tokens ============
+// ============ INIT ============
 (function init(){
-  initEJS();
-  var params=new URLSearchParams(window.location.search);
-  var verifyEmail=params.get('verify');
-  var verifyToken=params.get('token');
-  var rEmail=params.get('reset');
-  var rToken=params.get('rtoken');
-
-  if(verifyEmail&&verifyToken){
-    // Handle verification immediately
-    render(); // show something first
-    doVerify(decodeURIComponent(verifyEmail),verifyToken);
-    return;
-  }
-  if(rEmail&&rToken){
-    resetEmailLocal=decodeURIComponent(rEmail);
-    resetTokenLocal=rToken;
-    authMode='reset';
-    render(); return;
-  }
-
+  // Restore pending state if user was mid-registration
+  if(!currentUser && localStorage.getItem('px-pending-email')) authMode='pending';
   render();
   if(currentUser){
     if(tripId) loadTrip(); else loadTrips();
