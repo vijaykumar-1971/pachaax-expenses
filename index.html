@@ -106,11 +106,19 @@ button{cursor:pointer;border:none;font-family:inherit}
 .verify-box{background:white;border-radius:18px;padding:28px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.1);text-align:center}
 .copy-link{background:#f9fafb;border:2px solid #e5e7eb;border-radius:9px;padding:10px;font-size:11px;color:#374151;word-break:break-all;margin:10px 0;text-align:left;cursor:pointer}
 .copy-link:hover{background:#fef3c7;border-color:#d97706}
+/* CUSTOM CONFIRM */
+.warn-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9998}
+.warn-box{background:white;border-radius:16px;padding:24px;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.18)}
+.warn-box h4{font-size:16px;font-weight:900;color:#1f2937;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.warn-box p{font-size:13px;color:#6b7280;margin-bottom:18px;line-height:1.5}
+.warn-btns{display:flex;gap:8px}
+.warn-btns button{flex:1;padding:11px;border-radius:10px;font-weight:700;font-size:13px;border:none;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <div class="toast" id="toast"></div>
+<div id="warn-dialog" style="display:none"></div>
 
 <script>
 // ============ CONFIG ============
@@ -153,6 +161,24 @@ function toast(msg){
   var t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+// ============ CUSTOM CONFIRM ============
+function warnConfirm(message, onOk, okLabel, isDanger){
+  okLabel = okLabel || 'Confirm';
+  isDanger = isDanger !== false; // default true
+  var d = document.getElementById('warn-dialog');
+  d.style.display = 'block';
+  d.innerHTML = `<div class="warn-overlay">
+    <div class="warn-box">
+      <h4>⚠️ Warning</h4>
+      <p>${message}</p>
+      <div class="warn-btns">
+        <button style="background:#e5e7eb;color:#374151" onclick="document.getElementById('warn-dialog').style.display='none'">Cancel</button>
+        <button style="background:${isDanger?'#ef4444':'#d97706'};color:white" onclick="document.getElementById('warn-dialog').style.display='none';(${onOk.toString()})()">${okLabel}</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ============ HASH ============
@@ -281,10 +307,11 @@ async function doResetPassword(){
 }
 
 function doLogout(){
-  if(!confirm('Log out?'))return;
-  currentUser=null; localStorage.removeItem('px-user');
-  tripId=''; localStorage.removeItem('px-trip');
-  db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[]; authMode='login'; authErr=''; authOk=''; render();
+  warnConfirm('You will be logged out.', function(){
+    currentUser=null; localStorage.removeItem('px-user');
+    tripId=''; localStorage.removeItem('px-trip');
+    db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[]; authMode='login'; authErr=''; authOk=''; render();
+  }, 'Log Out', false);
 }
 
 // ============ TRIP PERMISSIONS ============
@@ -304,13 +331,15 @@ function isOwner(meta){
 
 async function doDeleteCurrentTrip(){
   if(!isOwner(db.meta)){toast('Only the trip owner can delete this trip.');return;}
-  if(!confirm('Delete trip "'+( db.meta.name||tripId)+'"? All data will be lost!'))return;
-  try{
-    await fbDel(tripId);
-    tripId=''; localStorage.removeItem('px-trip');
-    db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[];
-    toast('🗑️ Trip deleted'); render(); loadTrips();
-  }catch(e){toast('⚠️ Delete failed');}
+  var tripName=db.meta.name||tripId;
+  warnConfirm('Delete trip "<strong>'+tripName+'</strong>"? All expenses and data will be permanently lost.', async function(){
+    try{
+      await fbDel(tripId);
+      tripId=''; localStorage.removeItem('px-trip');
+      db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[];
+      toast('🗑️ Trip deleted'); render(); loadTrips();
+    }catch(e){toast('⚠️ Delete failed');}
+  }, 'Delete Trip');
 }
 
 async function doGrantAccess(){
@@ -333,11 +362,12 @@ async function doGrantAccess(){
 }
 
 async function doRevokeAccess(email){
-  if(!confirm('Remove access for '+email+'?'))return;
-  var members=(db.meta.members||[]).filter(m=>m!==email);
-  db.meta.members=members;
-  await fbSet(tripId+'/meta',db.meta);
-  toast('🚫 Access removed'); render();
+  warnConfirm('Remove access for <strong>'+email+'</strong>? They will no longer see this trip.', async function(){
+    var members=(db.meta.members||[]).filter(m=>m!==email);
+    db.meta.members=members;
+    await fbSet(tripId+'/meta',db.meta);
+    toast('🚫 Access removed'); render();
+  }, 'Remove');
 }
 
 // ============ ADMIN ============
@@ -359,20 +389,24 @@ async function loadAdminData(){
 }
 
 async function doBanUser(username,banned){
-  if(!confirm(banned?'Ban '+eFromKey(username)+'?':'Unban '+eFromKey(username)+'?'))return;
-  try{var rec=await faGet(username);if(!rec)return;rec.banned=banned;await faSet(username,rec);var idx=allUsers.findIndex(u=>u.username===username);if(idx!==-1)allUsers[idx].banned=banned;toast(banned?'🚫 User banned':'✅ User unbanned');render();}
-  catch(e){toast('⚠️ Failed');}
+  var email=eFromKey(username);
+  warnConfirm(banned?'Ban <strong>'+email+'</strong>? They will not be able to log in.':'Unban <strong>'+email+'</strong>? They will regain access.', async function(){
+    try{var rec=await faGet(username);if(!rec)return;rec.banned=banned;await faSet(username,rec);var idx=allUsers.findIndex(u=>u.username===username);if(idx!==-1)allUsers[idx].banned=banned;toast(banned?'🚫 User banned':'✅ User unbanned');render();}
+    catch(e){toast('⚠️ Failed');}
+  }, banned?'Ban User':'Unban User', banned);
 }
 async function doDeleteUser(username){
   if(eKey(currentUser.email)===username){toast('⚠️ Cannot delete yourself!');return;}
-  if(!confirm('Permanently delete user '+eFromKey(username)+'?'))return;
-  try{await faDel(username);allUsers=allUsers.filter(u=>u.username!==username);toast('🗑️ User deleted');render();}
-  catch(e){toast('⚠️ Failed');}
+  warnConfirm('Permanently delete account for <strong>'+eFromKey(username)+'</strong>? This cannot be undone.', async function(){
+    try{await faDel(username);allUsers=allUsers.filter(u=>u.username!==username);toast('🗑️ User deleted');render();}
+    catch(e){toast('⚠️ Failed');}
+  }, 'Delete');
 }
 async function doPromoteUser(username){
-  if(!confirm('Make '+eFromKey(username)+' an admin?'))return;
-  try{var rec=await faGet(username);if(!rec)return;rec.role='admin';await faSet(username,rec);var idx=allUsers.findIndex(u=>u.username===username);if(idx!==-1)allUsers[idx].role='admin';toast('👑 Promoted to admin');render();}
-  catch(e){toast('⚠️ Failed');}
+  warnConfirm('Grant admin privileges to <strong>'+eFromKey(username)+'</strong>? They will have full access to all users and trips.', async function(){
+    try{var rec=await faGet(username);if(!rec)return;rec.role='admin';await faSet(username,rec);var idx=allUsers.findIndex(u=>u.username===username);if(idx!==-1)allUsers[idx].role='admin';toast('👑 Promoted to admin');render();}
+    catch(e){toast('⚠️ Failed');}
+  }, 'Make Admin', false);
 }
 async function doApproveUser(username){
   try{
@@ -385,24 +419,41 @@ async function doApproveUser(username){
   }catch(e){toast('⚠️ Failed');}
 }
 async function doRejectUser(username){
-  if(!confirm('Reject and delete account for '+eFromKey(username)+'?'))return;
-  try{
-    await faDel(username);
-    allUsers=allUsers.filter(u=>u.username!==username);
-    toast('🗑️ Account rejected & deleted'); render();
-  }catch(e){toast('⚠️ Failed');}
+  warnConfirm('Reject and delete the registration request for <strong>'+eFromKey(username)+'</strong>?', async function(){
+    try{
+      await faDel(username);
+      allUsers=allUsers.filter(u=>u.username!==username);
+      toast('🗑️ Account rejected & deleted'); render();
+    }catch(e){toast('⚠️ Failed');}
+  }, 'Reject');
 }
 function doAdminShowOtp(username){
-  // Show the reset OTP stored on the user record so admin can share it
   var u=allUsers.find(u=>u.username===username);
   if(!u||!u.resetOtp){ toast('No pending reset OTP for this user.'); return; }
   var expired=u.resetAt&&(Date.now()-u.resetAt>3600000);
-  alert((expired?'⚠️ EXPIRED — ':'✅ Active OTP for ')+eFromKey(username)+':\n\n'+u.resetOtp+'\n\n'+(expired?'User must request a new one.':'Share this code with the user. Valid 1 hour.'));
+  var d=document.getElementById('warn-dialog');
+  d.style.display='block';
+  d.innerHTML=`<div class="warn-overlay">
+    <div class="warn-box">
+      <h4>🔑 Password Reset OTP</h4>
+      <p style="margin-bottom:8px">For: <strong>${eFromKey(username)}</strong></p>
+      <div style="background:${expired?'#fef2f2':'#f0fdf4'};border:2px solid ${expired?'#fca5a5':'#86efac'};border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
+        <div style="font-size:28px;font-weight:900;letter-spacing:6px;color:${expired?'#b91c1c':'#15803d'}">${u.resetOtp}</div>
+        <div style="font-size:11px;color:${expired?'#b91c1c':'#15803d'};margin-top:4px;font-weight:700">${expired?'⚠️ EXPIRED':'✅ Valid for 1 hour'}</div>
+      </div>
+      <p style="font-size:12px;color:#6b7280;margin-bottom:14px">${expired?'User must request a new OTP.':'Share this code with the user via WhatsApp, phone, or in person.'}</p>
+      <div class="warn-btns">
+        <button style="background:#e5e7eb;color:#374151" onclick="document.getElementById('warn-dialog').style.display='none'">Close</button>
+        ${!expired?`<button style="background:#d97706;color:white" onclick="navigator.clipboard&&navigator.clipboard.writeText('${u.resetOtp}');toast('📋 OTP copied!')">📋 Copy OTP</button>`:''}
+      </div>
+    </div>
+  </div>`;
 }
 async function doAdminDeleteTrip(id){
-  if(!confirm('Delete trip '+id+'? All data will be lost!'))return;
-  try{await fbDel(id);allTrips=allTrips.filter(t=>t.id!==id);if(tripId===id){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};}toast('🗑️ Trip deleted');render();}
-  catch(e){toast('⚠️ Failed');}
+  warnConfirm('Delete trip <strong>'+id+'</strong>? All its data will be permanently lost.', async function(){
+    try{await fbDel(id);allTrips=allTrips.filter(t=>t.id!==id);if(tripId===id){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};}toast('🗑️ Trip deleted');render();}
+    catch(e){toast('⚠️ Failed');}
+  }, 'Delete Trip');
 }
 
 // ============ LOAD / SAVE ============
@@ -461,10 +512,18 @@ function ctotal(){return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||
 // ============ EXPENSE ACTIONS ============
 async function doAddFriend(){var n=(document.getElementById('if')||{value:''}).value.trim();if(!n){toast('Enter a name!');return;}db.friends.push({id:'f'+Date.now(),name:n});fname='';modal=null;render();await saveTrip();}
 async function doAddExpense(){var desc=(document.getElementById('ied')||{value:''}).value.trim();var amt=parseFloat((document.getElementById('iea')||{value:''}).value);var payer=(document.getElementById('iep')||{value:''}).value;if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}var split={};if(esplit==='equal'){var per=amt/db.friends.length;db.friends.forEach(f=>split[f.id]=per);}else{db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});var tot=ctotal();if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);}if(editId){var idx=db.expenses.findIndex(e=>e.id===editId);if(idx!==-1)db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split};}else{db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:new Date().toISOString()});}modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};render();await saveTrip();}
-async function doDelExpense(id){if(!confirm('Delete this expense?'))return;db.expenses=db.expenses.filter(e=>e.id!==id);render();await saveTrip();}
+async function doDelExpense(id){
+  warnConfirm('Delete this expense? This cannot be undone.', async function(){
+    db.expenses=db.expenses.filter(e=>e.id!==id);render();await saveTrip();
+  }, 'Delete');
+}
 function doEditExpense(id){var e=db.expenses.find(x=>x.id===id);if(!e)return;editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;var vals=Object.values(e.splitAmong);var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);esplit=eq?'equal':'custom';csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));modal='expense';render();setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);}
 async function doMarkPaid(key,paid){if(paid)db.settlements.push(key);else db.settlements=db.settlements.filter(s=>s!==key);render();await saveTrip();}
-async function doReset(){if(!confirm('Delete ALL expenses & friends data?'))return;db={friends:[],expenses:[],settlements:[],meta:db.meta};render();await saveTrip();}
+async function doReset(){
+  warnConfirm('Delete <strong>all expenses and friends</strong> from this trip? Trip settings will be kept.', async function(){
+    db={friends:[],expenses:[],settlements:[],meta:db.meta};render();await saveTrip();
+  }, 'Reset All');
+}
 async function doCreateTrip(){var n=(document.getElementById('itn')||{value:''}).value.trim();var dt=(document.getElementById('itd')||{value:''}).value;if(!n){toast('Enter a trip name!');return;}tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');localStorage.setItem('px-trip',tripId);db={friends:[],expenses:[],settlements:[],meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}};modal=null;render();await fbSet(tripId+'/meta',db.meta);}
 function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;render();loadTrip();}
 function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];render();loadTrips();}
