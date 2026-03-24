@@ -14,6 +14,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff7ed;
 .tabs{display:flex;background:white;box-shadow:0 2px 4px rgba(0,0,0,0.1);position:sticky;top:0;z-index:100;overflow-x:auto}
 .tab{flex:1;min-width:70px;padding:11px 4px;font-size:10px;font-weight:700;text-transform:uppercase;background:none;border:none;cursor:pointer;color:#6b7280;border-bottom:3px solid transparent;white-space:nowrap}
 .tab.on{color:#92400e;background:#fef3c7;border-bottom:3px solid #d97706}
+.tab.admin-tab{color:#7c3aed}
+.tab.admin-tab.on{color:#7c3aed;background:#f5f3ff;border-bottom:3px solid #7c3aed}
 .wrap{max-width:600px;margin:0 auto;padding:14px}
 .card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #fed7aa}
 .row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
@@ -33,6 +35,7 @@ button{cursor:pointer;border:none;font-family:inherit}
 .empty{background:white;border-radius:12px;padding:36px;text-align:center}
 .empty p{color:#6b7280;margin-bottom:14px}
 .av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#fbbf24,#f97316);color:white;font-size:17px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.av.admin{background:linear-gradient(135deg,#7c3aed,#4f46e5)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:999}
 .modal{background:white;border-radius:18px;padding:22px;width:100%;max-width:400px;max-height:92vh;overflow-y:auto}
 .modal h3{font-size:18px;font-weight:900;margin-bottom:14px;color:#1f2937}
@@ -76,6 +79,31 @@ button{cursor:pointer;border:none;font-family:inherit}
 .trip-item{background:#fff7ed;border:2px solid #fed7aa;border-radius:10px;padding:11px 13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 .trip-item:hover{background:#fef3c7}
 .lbl{font-size:11px;font-weight:700;color:#6b7280;display:block;margin-bottom:4px;text-transform:uppercase}
+/* ===== AUTH STYLES ===== */
+.auth-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px;background:linear-gradient(135deg,#fff7ed,#fef3c7)}
+.auth-box{background:white;border-radius:18px;padding:28px;width:100%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.12)}
+.auth-box h2{font-size:22px;font-weight:900;color:#1f2937;margin-bottom:4px}
+.auth-box p{font-size:12px;color:#6b7280;margin-bottom:20px}
+.auth-tabs{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;margin-bottom:18px;gap:3px}
+.auth-tab{flex:1;padding:8px;border-radius:8px;font-size:12px;font-weight:700;background:none;color:#6b7280;text-align:center}
+.auth-tab.on{background:white;color:#92400e;box-shadow:0 1px 4px rgba(0,0,0,0.1)}
+.err-box{background:#fef2f2;border:2px solid #fca5a5;border-radius:9px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#b91c1c;font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:800;text-transform:uppercase}
+.badge-admin{background:#f5f3ff;color:#6d28d9}
+.badge-user{background:#f0fdf4;color:#15803d}
+.badge-banned{background:#fef2f2;color:#b91c1c}
+/* ===== ADMIN STYLES ===== */
+.admin-hdr{background:linear-gradient(90deg,#7c3aed,#4f46e5);color:white;border-radius:12px;padding:14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.user-card{background:white;border-radius:12px;padding:14px;margin-bottom:9px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb;display:flex;align-items:center;gap:10px}
+.user-card.banned{border-color:#fca5a5;background:#fef2f2;opacity:0.8}
+.user-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.trip-admin-card{background:white;border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
+.banned-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px;background:#fef2f2}
+.banned-box{background:white;border-radius:18px;padding:28px;width:100%;max-width:360px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.1);border:2px solid #fca5a5}
+.stat-box{background:linear-gradient(135deg,#f5f3ff,#ede9fe);border-radius:12px;padding:14px;text-align:center;border:2px solid #ddd6fe}
+.stat-box .num{font-size:28px;font-weight:900;color:#6d28d9}
+.stat-box .lbl2{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-top:2px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -84,19 +112,28 @@ button{cursor:pointer;border:none;font-family:inherit}
 
 <script>
 // ============ CONFIG ============
-const FB = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
+const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
+const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
 // ============ STATE ============
-let tripId   = localStorage.getItem('px-trip') || '';
-let db       = { friends:[], expenses:[], settlements:[], meta:{} };
-let trips    = [];
-let tab      = 'expenses';
-let syncing  = false;
-let lastSync = '';
-let modal    = null; // null | 'friend' | 'expense' | 'trip'
-let editId   = null;
-// form fields
+let tripId      = localStorage.getItem('px-trip') || '';
+let db          = { friends:[], expenses:[], settlements:[], meta:{} };
+let trips       = [];
+let tab         = 'expenses';
+let syncing     = false;
+let lastSync    = '';
+let modal       = null;
+let editId      = null;
 let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={};
+
+// --- AUTH STATE ---
+let currentUser  = JSON.parse(localStorage.getItem('px-user') || 'null');
+let authMode     = 'login';   // 'login' | 'register'
+let authErr      = '';
+let authLoading  = false;
+let adminSubTab  = 'users';   // 'users' | 'trips'
+let allUsers     = [];
+let allTrips     = [];
 
 // ============ TOAST ============
 function toast(msg) {
@@ -105,241 +142,239 @@ function toast(msg) {
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-// ============ FIREBASE ============
-function url(path) { return FB+'/'+path+'.json'; }
-
-async function fbGet(path) {
-  var r = await fetch(url(path));
-  return r.ok ? r.json() : null;
+// ============ PASSWORD HASHING (SHA-256) ============
+async function hashPwd(pwd) {
+  var enc   = new TextEncoder().encode(pwd);
+  var buf   = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-async function fbSet(path, data) {
-  var r = await fetch(url(path), {
-    method:'PUT',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(data)
-  });
-  return r.ok;
+// ============ FIREBASE ============
+function url(path)  { return FB+'/'+path+'.json'; }
+function aurl(path) { return FB_AUTH+'/'+path+'.json'; }
+
+async function fbGet(path)        { var r=await fetch(url(path)); return r.ok?r.json():null; }
+async function fbSet(path, data)  { var r=await fetch(url(path),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); return r.ok; }
+async function faGet(path)        { var r=await fetch(aurl(path)); return r.ok?r.json():null; }
+async function faSet(path, data)  { var r=await fetch(aurl(path),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); return r.ok; }
+async function faDel(path)        { var r=await fetch(aurl(path),{method:'DELETE'}); return r.ok; }
+
+// ============ AUTH ============
+async function doLogin() {
+  authErr=''; authLoading=true; render();
+  var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
+  var p=(document.getElementById('ap')||{value:''}).value;
+  if(!u||!p){authErr='Fill all fields!';authLoading=false;render();return;}
+  try {
+    var rec = await faGet(u);
+    if(!rec){authErr='User not found. Register instead?';authLoading=false;render();return;}
+    var h = await hashPwd(p);
+    if(h!==rec.passwordHash){authErr='Wrong password.';authLoading=false;render();return;}
+    if(rec.banned){authErr='Your account has been banned.';authLoading=false;render();return;}
+    currentUser={username:u,role:rec.role||'user',displayName:rec.displayName||u};
+    localStorage.setItem('px-user',JSON.stringify(currentUser));
+    authErr=''; authLoading=false;
+    toast('👋 Welcome back, '+currentUser.displayName+'!');
+    render(); if(tripId) loadTrip(); else loadTrips();
+  } catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
+}
+
+async function doRegister() {
+  authErr=''; authLoading=true; render();
+  var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
+  var dn=(document.getElementById('adn')||{value:''}).value.trim();
+  var p=(document.getElementById('ap')||{value:''}).value;
+  var p2=(document.getElementById('ap2')||{value:''}).value;
+  if(!u||!dn||!p||!p2){authErr='Fill all fields!';authLoading=false;render();return;}
+  if(!/^[a-z0-9_]{3,20}$/.test(u)){authErr='Username: 3-20 chars, letters/numbers/_ only.';authLoading=false;render();return;}
+  if(p.length<6){authErr='Password must be at least 6 characters.';authLoading=false;render();return;}
+  if(p!==p2){authErr='Passwords do not match.';authLoading=false;render();return;}
+  try {
+    var existing = await faGet(u);
+    if(existing){authErr='Username already taken.';authLoading=false;render();return;}
+    // check if any users exist — first user becomes admin
+    var allU = await fetch(FB_AUTH+'.json?shallow=true'); var allD = await allU.json();
+    var isFirst = !allD || Object.keys(allD).length===0;
+    var h = await hashPwd(p);
+    await faSet(u,{passwordHash:h,role:isFirst?'admin':'user',displayName:dn,banned:false,createdAt:new Date().toISOString()});
+    currentUser={username:u,role:isFirst?'admin':'user',displayName:dn};
+    localStorage.setItem('px-user',JSON.stringify(currentUser));
+    authErr=''; authLoading=false;
+    toast(isFirst?'👑 Welcome, Admin '+dn+'!':'🎉 Account created, '+dn+'!');
+    render(); loadTrips();
+  } catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
+}
+
+function doLogout() {
+  if(!confirm('Log out?'))return;
+  currentUser=null; localStorage.removeItem('px-user');
+  tripId=''; localStorage.removeItem('px-trip');
+  db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[]; authMode='login'; authErr=''; render();
+}
+
+// ============ ADMIN ============
+async function loadAdminData() {
+  try {
+    var r1=await fetch(FB_AUTH+'.json'); var ud=await r1.json();
+    allUsers=ud?Object.entries(ud).map(([k,v])=>({username:k,...v})):[];
+    var r2=await fetch(FB+'.json?shallow=true'); var td=await r2.json();
+    if(td){
+      var keys=Object.keys(td);
+      var list=await Promise.all(keys.map(async k=>{
+        try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||''};}
+        catch(e){return{id:k,name:k,date:''};}
+      }));
+      allTrips=list.sort((a,b)=>b.date.localeCompare(a.date));
+    } else allTrips=[];
+    render();
+  } catch(e){toast('⚠️ Failed to load admin data');}
+}
+
+async function doBanUser(username,banned) {
+  if(!confirm(banned?`Ban ${username}?`:`Unban ${username}?`))return;
+  try {
+    var rec=await faGet(username);
+    if(!rec)return;
+    rec.banned=banned;
+    await faSet(username,rec);
+    var idx=allUsers.findIndex(u=>u.username===username);
+    if(idx!==-1)allUsers[idx].banned=banned;
+    toast(banned?'🚫 '+username+' banned':'✅ '+username+' unbanned'); render();
+  } catch(e){toast('⚠️ Failed');}
+}
+
+async function doDeleteUser(username) {
+  if(username===currentUser.username){toast('⚠️ Cannot delete yourself!');return;}
+  if(!confirm('Permanently delete user '+username+'? This cannot be undone.'))return;
+  try {
+    await faDel(username);
+    allUsers=allUsers.filter(u=>u.username!==username);
+    toast('🗑️ User deleted'); render();
+  } catch(e){toast('⚠️ Failed');}
+}
+
+async function doPromoteUser(username) {
+  if(!confirm('Make '+username+' an admin?'))return;
+  try {
+    var rec=await faGet(username);
+    if(!rec)return;
+    rec.role='admin';
+    await faSet(username,rec);
+    var idx=allUsers.findIndex(u=>u.username===username);
+    if(idx!==-1)allUsers[idx].role='admin';
+    toast('👑 '+username+' is now admin'); render();
+  } catch(e){toast('⚠️ Failed');}
+}
+
+async function doDeleteTrip(id) {
+  if(!confirm('Delete trip '+id+'? All its data will be lost!'))return;
+  try {
+    await fetch(url(id),{method:'DELETE'});
+    allTrips=allTrips.filter(t=>t.id!==id);
+    if(tripId===id){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};}
+    toast('🗑️ Trip deleted'); render();
+  } catch(e){toast('⚠️ Failed');}
 }
 
 // ============ LOAD / SAVE ============
 async function loadTrip() {
   try {
-    var d = await fbGet(tripId);
-    if (d) {
-      db.friends     = d.friends     || [];
-      db.expenses    = d.expenses    || [];
-      db.settlements = d.settlements || [];
-      db.meta        = d.meta        || {};
-    } else {
-      db = {friends:[],expenses:[],settlements:[],meta:{}};
-    }
-    lastSync = new Date().toLocaleTimeString();
-  } catch(e) { toast('⚠️ Load failed'); }
+    var d=await fbGet(tripId);
+    if(d){db.friends=d.friends||[];db.expenses=d.expenses||[];db.settlements=d.settlements||[];db.meta=d.meta||{};}
+    else db={friends:[],expenses:[],settlements:[],meta:{}};
+    lastSync=new Date().toLocaleTimeString();
+  } catch(e){toast('⚠️ Load failed');}
   render();
 }
 
 async function saveTrip() {
   syncing=true; updateSync();
   try {
-    var ok = await fbSet(tripId, db);
-    if (ok) { lastSync=new Date().toLocaleTimeString(); toast('✅ Saved!'); }
+    var ok=await fbSet(tripId,db);
+    if(ok){lastSync=new Date().toLocaleTimeString();toast('✅ Saved!');}
     else toast('⚠️ Save failed');
-  } catch(e) { toast('⚠️ No internet'); }
+  } catch(e){toast('⚠️ No internet');}
   syncing=false; updateSync();
 }
 
 async function loadTrips() {
   try {
-    var r = await fetch(FB+'.json?shallow=true');
-    if (!r.ok) { trips=[]; render(); return; }
-    var d = await r.json();
-    if (!d) { trips=[]; render(); return; }
-    var keys = Object.keys(d);
-    var list = await Promise.all(keys.map(async k => {
-      try {
-        var m = await fbGet(k+'/meta');
-        return {id:k, name:(m&&m.name)||k, date:(m&&m.date)||''};
-      } catch(e) { return {id:k,name:k,date:''}; }
+    var r=await fetch(FB+'.json?shallow=true');
+    if(!r.ok){trips=[];render();return;}
+    var d=await r.json();
+    if(!d){trips=[];render();return;}
+    var keys=Object.keys(d);
+    var list=await Promise.all(keys.map(async k=>{
+      try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||''};}
+      catch(e){return{id:k,name:k,date:''};}
     }));
-    trips = list.sort((a,b)=>b.date.localeCompare(a.date));
-  } catch(e) { trips=[]; }
+    trips=list.sort((a,b)=>b.date.localeCompare(a.date));
+  } catch(e){trips=[];}
   render();
 }
 
 function updateSync() {
   var el=document.getElementById('sync');
-  if(el) el.textContent = syncing?'☁️ Syncing...': lastSync?'✅ '+lastSync:'';
+  if(el)el.textContent=syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:'';
 }
 
 // ============ AUTO REFRESH ============
 setInterval(async()=>{
-  if(!tripId||modal||syncing) return;
-  try {
+  if(!currentUser||!tripId||modal||syncing)return;
+  try{
     var d=await fbGet(tripId);
-    if(d){
-      db.friends=d.friends||[]; db.expenses=d.expenses||[];
-      db.settlements=d.settlements||[]; db.meta=d.meta||{};
-      lastSync=new Date().toLocaleTimeString();
-      render();
-    }
-  } catch(e){}
+    if(d){db.friends=d.friends||[];db.expenses=d.expenses||[];db.settlements=d.settlements||[];db.meta=d.meta||{};lastSync=new Date().toLocaleTimeString();render();}
+  }catch(e){}
 },10000);
 
 // ============ CALC ============
-function balances() {
-  var b={};
-  db.friends.forEach(f=>b[f.id]=0);
-  db.expenses.forEach(e=>{
-    b[e.paidBy]=(b[e.paidBy]||0)+e.amount;
-    Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);
-  });
-  return b;
-}
-
-function settlements() {
-  var b=balances(), debt=[], cred=[], res=[];
-  Object.entries(b).forEach(([id,v])=>{
-    if(v<-0.01) debt.push({id,a:-v});
-    else if(v>0.01) cred.push({id,a:v});
-  });
-  var i=0,j=0;
-  while(i<debt.length&&j<cred.length){
-    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-    res.push({from:d.id,to:c.id,amount:amt,key,paid:db.settlements.includes(key)});
-    d.a-=amt; c.a-=amt;
-    if(d.a<0.01)i++; if(c.a<0.01)j++;
-  }
-  return res;
-}
-
-function gname(id){ return (db.friends.find(f=>f.id===id)||{name:'?'}).name; }
-function upi(n,a){ return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax'; }
-function ctotal(){ return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||0),0); }
+function balances(){var b={};db.friends.forEach(f=>b[f.id]=0);db.expenses.forEach(e=>{b[e.paidBy]=(b[e.paidBy]||0)+e.amount;Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);});return b;}
+function settlements(){var b=balances(),debt=[],cred=[],res=[];Object.entries(b).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});var i=0,j=0;while(i<debt.length&&j<cred.length){var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;res.push({from:d.id,to:c.id,amount:amt,key,paid:db.settlements.includes(key)});d.a-=amt;c.a-=amt;if(d.a<0.01)i++;if(c.a<0.01)j++;}return res;}
+function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
+function upi(n,a){return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax';}
+function ctotal(){return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||0),0);}
 
 // ============ ACTIONS ============
-async function doAddFriend() {
-  var n=(document.getElementById('if')||{value:''}).value.trim();
-  if(!n){toast('Enter a name!');return;}
-  db.friends.push({id:'f'+Date.now(),name:n});
-  fname=''; modal=null; render(); await saveTrip();
-}
-
-async function doAddExpense() {
-  var desc=(document.getElementById('ied')||{value:''}).value.trim();
-  var amt=parseFloat((document.getElementById('iea')||{value:''}).value);
-  var payer=(document.getElementById('iep')||{value:''}).value;
-  if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
-  var split={};
-  if(esplit==='equal'){
-    var per=amt/db.friends.length;
-    db.friends.forEach(f=>split[f.id]=per);
-  } else {
-    db.friends.forEach(f=>{
-      var el=document.getElementById('cs'+f.id);
-      if(el) csplits[f.id]=el.value;
-    });
-    var tot=ctotal();
-    if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}
-    db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);
-  }
-  if(editId){
-    var idx=db.expenses.findIndex(e=>e.id===editId);
-    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split};
-  } else {
-    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:new Date().toISOString()});
-  }
-  modal=null; editId=null; edesc=''; eamt=''; epayer=''; esplit='equal'; csplits={};
-  render(); await saveTrip();
-}
-
-async function doDelExpense(id) {
-  if(!confirm('Delete this expense?'))return;
-  db.expenses=db.expenses.filter(e=>e.id!==id);
-  render(); await saveTrip();
-}
-
-function doEditExpense(id) {
-  var e=db.expenses.find(x=>x.id===id);
-  if(!e)return;
-  editId=id; edesc=e.description; eamt=String(e.amount); epayer=e.paidBy;
-  var vals=Object.values(e.splitAmong);
-  var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);
-  esplit=eq?'equal':'custom';
-  csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));
-  modal='expense'; render();
-  setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
-}
-
-async function doMarkPaid(key,paid) {
-  if(paid) db.settlements.push(key);
-  else db.settlements=db.settlements.filter(s=>s!==key);
-  render(); await saveTrip();
-}
-
-async function doReset() {
-  if(!confirm('Delete ALL data for everyone?'))return;
-  db={friends:[],expenses:[],settlements:[],meta:{}};
-  render(); await saveTrip();
-}
-
-async function doCreateTrip() {
-  var n=(document.getElementById('itn')||{value:''}).value.trim();
-  var dt=(document.getElementById('itd')||{value:''}).value;
-  if(!n){toast('Enter a trip name!');return;}
-  tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
-  localStorage.setItem('px-trip',tripId);
-  db={friends:[],expenses:[],settlements:[],meta:{name:n,date:dt,created:new Date().toISOString()}};
-  modal=null; render();
-  await fbSet(tripId+'/meta',db.meta);
-}
-
-function doSelectTrip(id) {
-  tripId=id; localStorage.setItem('px-trip',id);
-  db={friends:[],expenses:[],settlements:[],meta:{}}; modal=null;
-  render(); loadTrip();
-}
-
-function doSwitchTrip() {
-  tripId=''; localStorage.removeItem('px-trip');
-  db={friends:[],expenses:[],settlements:[],meta:{}};
-  trips=[]; render(); loadTrips();
-}
-
-function calcTotal() {
-  var tot=0;
-  db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});
-  var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;
-  var match=ea>0&&Math.abs(tot-ea)<0.01;
-  var el=document.getElementById('ctot');
-  if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}
-}
-
-function doSetSplit(t) {
-  // save current inputs before re-render
-  db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
-  var ded=document.getElementById('ied'); if(ded)edesc=ded.value;
-  var dea=document.getElementById('iea'); if(dea)eamt=dea.value;
-  var dep=document.getElementById('iep'); if(dep)epayer=dep.value;
-  esplit=t; render();
-  setTimeout(()=>{if(t==='custom')calcTotal();},50);
-}
+async function doAddFriend(){var n=(document.getElementById('if')||{value:''}).value.trim();if(!n){toast('Enter a name!');return;}db.friends.push({id:'f'+Date.now(),name:n});fname='';modal=null;render();await saveTrip();}
+async function doAddExpense(){var desc=(document.getElementById('ied')||{value:''}).value.trim();var amt=parseFloat((document.getElementById('iea')||{value:''}).value);var payer=(document.getElementById('iep')||{value:''}).value;if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}var split={};if(esplit==='equal'){var per=amt/db.friends.length;db.friends.forEach(f=>split[f.id]=per);}else{db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});var tot=ctotal();if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);}if(editId){var idx=db.expenses.findIndex(e=>e.id===editId);if(idx!==-1)db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split};}else{db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:new Date().toISOString()});}modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};render();await saveTrip();}
+async function doDelExpense(id){if(!confirm('Delete this expense?'))return;db.expenses=db.expenses.filter(e=>e.id!==id);render();await saveTrip();}
+function doEditExpense(id){var e=db.expenses.find(x=>x.id===id);if(!e)return;editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;var vals=Object.values(e.splitAmong);var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);esplit=eq?'equal':'custom';csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));modal='expense';render();setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);}
+async function doMarkPaid(key,paid){if(paid)db.settlements.push(key);else db.settlements=db.settlements.filter(s=>s!==key);render();await saveTrip();}
+async function doReset(){if(!confirm('Delete ALL data for everyone?'))return;db={friends:[],expenses:[],settlements:[],meta:{}};render();await saveTrip();}
+async function doCreateTrip(){var n=(document.getElementById('itn')||{value:''}).value.trim();var dt=(document.getElementById('itd')||{value:''}).value;if(!n){toast('Enter a trip name!');return;}tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');localStorage.setItem('px-trip',tripId);db={friends:[],expenses:[],settlements:[],meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.username:''}};modal=null;render();await fbSet(tripId+'/meta',db.meta);}
+function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;render();loadTrip();}
+function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];render();loadTrips();}
+function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
+function doSetSplit(t){db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});var ded=document.getElementById('ied');if(ded)edesc=ded.value;var dea=document.getElementById('iea');if(dea)eamt=dea.value;var dep=document.getElementById('iep');if(dep)epayer=dep.value;esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);}
 
 // ============ RENDER ============
 function render() {
   var root=document.getElementById('root');
   if(!root)return;
+
+  // Not logged in → Auth screen
+  if(!currentUser){root.innerHTML=authScreen();return;}
+
+  // Banned
+  if(currentUser.banned){root.innerHTML=bannedScreen();return;}
+
+  // Trip selection
   if(!tripId){root.innerHTML=tripScreen();return;}
+
   var bal=balances(), sets=settlements();
   var meta=db.meta||{};
   var tripLabel=meta.name||tripId;
   var tripDate=meta.date?new Date(meta.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+  var isAdmin=currentUser.role==='admin';
 
   var body='';
-  if(tab==='expenses') body=tabExp(bal);
+  if(tab==='expenses')     body=tabExp(bal);
   else if(tab==='friends') body=tabFr(bal);
-  else if(tab==='settle') body=tabSet(bal,sets);
-  else if(tab==='thailand') body=tabTh();
+  else if(tab==='settle')  body=tabSet(bal,sets);
+  else if(tab==='thailand')body=tabTh();
+  else if(tab==='admin'&&isAdmin) body=tabAdmin();
+
+  var adminTabHtml=isAdmin?`<button class="tab admin-tab ${tab==='admin'?'on':''}" onclick="tab='admin';if(allUsers.length===0)loadAdminData();render()">👑 Admin</button>`:'';
 
   root.innerHTML=`
   <div class="hdr">
@@ -349,9 +384,14 @@ function render() {
         <p id="sync">${syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:''}</p>
         ${tripLabel?`<p style="font-size:11px;color:#fef3c7;font-weight:700;margin-top:1px">✈️ ${tripLabel}${tripDate?' · 📅 '+tripDate:''}</p>`:''}
       </div>
-      <div style="display:flex;gap:5px">
+      <div style="display:flex;gap:5px;align-items:center">
+        <div style="text-align:right;margin-right:3px">
+          <div style="font-size:11px;font-weight:700;color:#fef3c7">${currentUser.displayName}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.65)">${isAdmin?'👑 Admin':'👤 User'}</div>
+        </div>
         <button class="rbtn" onclick="loadTrip()">🔄</button>
         <button class="rbtn" onclick="doSwitchTrip()">🔀</button>
+        <button class="rbtn" onclick="doLogout()">⏏️</button>
       </div>
     </div>
   </div>
@@ -360,14 +400,90 @@ function render() {
     <button class="tab ${tab==='friends'?'on':''}" onclick="tab='friends';render()">Friends (${db.friends.length})</button>
     <button class="tab ${tab==='settle'?'on':''}" onclick="tab='settle';render()">Settle Up</button>
     <button class="tab ${tab==='thailand'?'on':''}" onclick="tab='thailand';render()">Ravi's Thai 🇹🇭</button>
+    ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
   ${modal==='friend'?mFriend():modal==='expense'?mExpense():''}
-  <div class="foot">💡 ${tripId} · Syncs every 10s across all devices</div>`;
+  <div class="foot">💡 ${tripId} · Syncs every 10s · Logged in as ${currentUser.displayName}</div>`;
+}
+
+// ============ AUTH SCREEN ============
+function authScreen(){
+  var isLogin=authMode==='login';
+  return `<div class="auth-screen">
+    <div style="font-size:52px;margin-bottom:8px">💰</div>
+    <h1 style="font-size:26px;font-weight:900;color:#92400e;margin-bottom:4px">Pachaax Expenses</h1>
+    <p style="color:#6b7280;font-size:12px;margin-bottom:20px">Sign in to manage your trip expenses</p>
+    <div class="auth-box">
+      <div class="auth-tabs">
+        <button class="auth-tab ${isLogin?'on':''}" onclick="authMode='login';authErr='';render()">Login</button>
+        <button class="auth-tab ${!isLogin?'on':''}" onclick="authMode='register';authErr='';render()">Register</button>
+      </div>
+      ${authErr?`<div class="err-box">⚠️ ${authErr}</div>`:''}
+      ${!isLogin?`<span class="lbl">Display Name</span>
+      <input id="adn" class="f" type="text" placeholder="Your name (e.g. Ravi)" autocomplete="name">`:``}
+      <span class="lbl">Username</span>
+      <input id="au" class="f" type="text" placeholder="e.g. ravi123" autocomplete="username" onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':'doRegister()'}">
+      <span class="lbl">Password</span>
+      <input id="ap" class="f" type="password" placeholder="••••••••" autocomplete="${isLogin?'current-password':'new-password'}" onkeydown="if(event.key==='Enter')${isLogin?'doLogin()':'doRegister()'}">
+      ${!isLogin?`<span class="lbl">Confirm Password</span>
+      <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">`:``}
+      <button class="btn primary" onclick="${isLogin?'doLogin()':'doRegister()'}" style="width:100%;padding:13px;font-size:14px;margin-top:4px" ${authLoading?'disabled':''}>
+        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':'🚀 Create Account')}
+      </button>
+      ${isLogin?`<p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">No account? <button onclick="authMode='register';authErr='';render()" style="background:none;color:#d97706;font-weight:700;font-size:11px">Register here →</button></p>`:`<p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">First user registered becomes <strong>Admin</strong> 👑</p>`}
+    </div>
+  </div>`;
+}
+
+// ============ BANNED SCREEN ============
+function bannedScreen(){
+  return `<div class="banned-screen">
+    <div class="banned-box">
+      <div style="font-size:52px;margin-bottom:12px">🚫</div>
+      <h2 style="font-size:20px;font-weight:900;color:#b91c1c;margin-bottom:8px">Account Banned</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:20px">Your account has been banned by an admin. Contact your group admin for help.</p>
+      <button class="btn danger" onclick="doLogout()" style="width:100%">Log Out</button>
+    </div>
+  </div>`;
+}
+
+// ============ TRIP SCREEN ============
+function tripScreen(){
+  var today=new Date().toISOString().split('T')[0];
+  var list=trips.length?trips.map(t=>`
+    <div class="trip-item" onclick="doSelectTrip('${t.id}')">
+      <div>
+        <div style="font-weight:900;font-size:13px;color:#92400e">${t.name}</div>
+        <div style="font-size:11px;color:#6b7280">🏷️ ${t.id}${t.date?' · 📅 '+new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):''}</div>
+      </div>
+      <span style="font-size:18px;color:#d97706">→</span>
+    </div>`).join('')
+    :`<p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:12px">No existing trips found</p>`;
+
+  return `<div class="trip-screen">
+    <div style="font-size:48px;margin-bottom:10px">💰</div>
+    <h1 style="font-size:24px;font-weight:900;color:#92400e;margin-bottom:4px">Pachaax Expenses</h1>
+    <p style="color:#6b7280;font-size:12px;margin-bottom:4px;text-align:center">👋 Hi, <strong>${currentUser.displayName}</strong>!</p>
+    <p style="color:#6b7280;font-size:12px;margin-bottom:20px;text-align:center">Create or join a trip to get started</p>
+    <div class="trip-box">
+      <div style="font-weight:900;font-size:12px;color:#374151;margin-bottom:8px;text-transform:uppercase">✨ Create New Trip</div>
+      <span class="lbl">Trip Name</span>
+      <input id="itn" class="f" type="text" placeholder="e.g. Thailand 2025, Goa Trip" onkeydown="if(event.key==='Enter')doCreateTrip()">
+      <span class="lbl">Trip Date</span>
+      <input id="itd" class="f" type="date" value="${today}">
+      <button class="btn primary" onclick="doCreateTrip()" style="width:100%;padding:12px;font-size:14px;margin-top:2px">🚀 Create Trip</button>
+      ${trips.length?`<div style="margin-top:18px;font-weight:900;font-size:12px;color:#374151;margin-bottom:8px;text-transform:uppercase">📋 Join Existing Trip</div>${list}`:''}
+      ${!trips.length?`<p style="text-align:center;color:#9ca3af;font-size:11px;margin-top:12px">Loading trips...</p>`:''}
+      <div style="margin-top:16px;text-align:center">
+        <button onclick="doLogout()" style="background:none;color:#9ca3af;font-size:11px;font-weight:600">⏏️ Log out</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ============ TABS ============
-function tabExp(bal) {
+function tabExp(bal){
   var total=db.expenses.reduce((s,e)=>s+e.amount,0);
   var h=`<div class="shd"><h2>All Expenses</h2>
     <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
@@ -375,10 +491,8 @@ function tabExp(bal) {
   if(!db.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn primary" onclick="tab='friends';render()">Go to Friends</button></div>`;
   if(!db.expenses.length) return h+`<div class="empty"><p>💸 No expenses yet!</p></div>`;
   h+=`<div style="background:linear-gradient(90deg,#d97706,#ea580c);color:white;border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-    <div>
-      <div style="font-size:11px;font-weight:700;opacity:0.85">TOTAL EXPENSES</div>
-      <div style="font-size:11px;opacity:0.7">${db.expenses.length} expense${db.expenses.length!==1?'s':''} · ${db.friends.length} people</div>
-    </div>
+    <div><div style="font-size:11px;font-weight:700;opacity:0.85">TOTAL EXPENSES</div>
+    <div style="font-size:11px;opacity:0.7">${db.expenses.length} expense${db.expenses.length!==1?'s':''} · ${db.friends.length} people</div></div>
     <div style="font-size:24px;font-weight:900">₹${Math.round(total).toLocaleString()}</div>
   </div>`;
   h+=db.expenses.map(e=>{
@@ -401,7 +515,7 @@ function tabExp(bal) {
   return h;
 }
 
-function tabFr(bal) {
+function tabFr(bal){
   var h=`<div class="shd"><h2>Your Group</h2>
     <button class="btn primary sm" onclick="fname='';modal='friend';render();setTimeout(()=>{var e=document.getElementById('if');if(e)e.focus();},100)">+ Add</button>
   </div>`;
@@ -418,7 +532,7 @@ function tabFr(bal) {
   return h;
 }
 
-function tabSet(bal,sets) {
+function tabSet(bal,sets){
   if(!db.friends.length) return `<div class="empty"><p>Add friends first!</p></div>`;
   if(!db.expenses.length) return `<div class="empty"><p>No expenses yet!</p></div>`;
   var h=`<div class="btbl"><div style="font-weight:900;font-size:15px;margin-bottom:10px">Current Balances</div>`;
@@ -471,34 +585,71 @@ function tabTh(){
   </div>`;
 }
 
-// ============ TRIP SCREEN ============
-function tripScreen(){
-  var today=new Date().toISOString().split('T')[0];
-  var list=trips.length?trips.map(t=>`
-    <div class="trip-item" onclick="doSelectTrip('${t.id}')">
-      <div>
-        <div style="font-weight:900;font-size:13px;color:#92400e">${t.name}</div>
-        <div style="font-size:11px;color:#6b7280">🏷️ ${t.id}${t.date?' · 📅 '+new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):''}</div>
-      </div>
-      <span style="font-size:18px;color:#d97706">→</span>
-    </div>`).join('')
-    :`<p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:12px">No existing trips found</p>`;
+// ============ ADMIN TAB ============
+function tabAdmin(){
+  var bannedCount=allUsers.filter(u=>u.banned).length;
+  var adminCount=allUsers.filter(u=>u.role==='admin').length;
 
-  return `<div class="trip-screen">
-    <div style="font-size:48px;margin-bottom:10px">💰</div>
-    <h1 style="font-size:24px;font-weight:900;color:#92400e;margin-bottom:4px">Pachaax Expenses</h1>
-    <p style="color:#6b7280;font-size:12px;margin-bottom:20px;text-align:center">Create or join a trip to get started</p>
-    <div class="trip-box">
-      <div style="font-weight:900;font-size:12px;color:#374151;margin-bottom:8px;text-transform:uppercase">✨ Create New Trip</div>
-      <span class="lbl">Trip Name</span>
-      <input id="itn" class="f" type="text" placeholder="e.g. Thailand 2025, Goa Trip" onkeydown="if(event.key==='Enter')doCreateTrip()">
-      <span class="lbl">Trip Date</span>
-      <input id="itd" class="f" type="date" value="${today}">
-      <button class="btn primary" onclick="doCreateTrip()" style="width:100%;padding:12px;font-size:14px;margin-top:2px">🚀 Create Trip</button>
-      ${trips.length?`<div style="margin-top:18px;font-weight:900;font-size:12px;color:#374151;margin-bottom:8px;text-transform:uppercase">📋 Join Existing Trip</div>${list}`:''}
-      ${!trips.length?`<p style="text-align:center;color:#9ca3af;font-size:11px;margin-top:12px">Loading trips...</p>`:''}
+  var h=`<div class="admin-hdr">
+    <div>
+      <div style="font-size:11px;font-weight:700;opacity:0.8;text-transform:uppercase">Admin Dashboard</div>
+      <div style="font-size:20px;font-weight:900;margin-top:2px">👑 Super User Panel</div>
     </div>
+    <button class="btn sm" style="background:rgba(255,255,255,0.2);color:white;font-size:11px" onclick="loadAdminData()">🔄 Refresh</button>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-box"><div class="num">${allUsers.length}</div><div class="lbl2">Total Users</div></div>
+    <div class="stat-box"><div class="num">${bannedCount}</div><div class="lbl2">Banned</div></div>
+    <div class="stat-box"><div class="num">${allTrips.length}</div><div class="lbl2">Trips</div></div>
   </div>`;
+
+  // Sub-tabs
+  h+=`<div style="display:flex;background:white;border-radius:10px;padding:3px;gap:3px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
+    <button class="btn sm ${adminSubTab==='users'?'purple':'secondary'}" onclick="adminSubTab='users';render()" style="flex:1">👥 Users (${allUsers.length})</button>
+    <button class="btn sm ${adminSubTab==='trips'?'purple':'secondary'}" onclick="adminSubTab='trips';render()" style="flex:1">✈️ Trips (${allTrips.length})</button>
+  </div>`;
+
+  if(adminSubTab==='users'){
+    if(!allUsers.length) h+=`<div class="empty"><p>No users found. Click Refresh.</p></div>`;
+    else h+=allUsers.map(u=>{
+      var isMe=u.username===currentUser.username;
+      var roleB=u.role==='admin'?`<span class="badge badge-admin">👑 Admin</span>`:`<span class="badge badge-user">👤 User</span>`;
+      var banB=u.banned?`<span class="badge badge-banned">🚫 Banned</span>`:'';
+      return `<div class="user-card ${u.banned?'banned':''}">
+        <div class="av ${u.role==='admin'?'admin':''}">${(u.displayName||u.username)[0].toUpperCase()}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:900;font-size:14px">${u.displayName||u.username} ${isMe?'<span style="font-size:10px;color:#d97706">(you)</span>':''}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:1px">@${u.username}</div>
+          <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">${roleB}${banB}</div>
+        </div>
+        ${!isMe?`<div class="user-actions">
+          ${u.banned
+            ?`<button class="btn green sm" onclick="doBanUser('${u.username}',false)">✅ Unban</button>`
+            :`<button class="btn danger sm" onclick="doBanUser('${u.username}',true)">🚫 Ban</button>`
+          }
+          ${u.role!=='admin'?`<button class="btn sm" style="background:#f5f3ff;color:#6d28d9" onclick="doPromoteUser('${u.username}')">👑 Make Admin</button>`:''}
+          <button class="btn danger sm" onclick="doDeleteUser('${u.username}')">🗑️</button>
+        </div>`:'<div style="color:#9ca3af;font-size:11px">That\'s you</div>'}
+      </div>`;
+    }).join('');
+  } else {
+    if(!allTrips.length) h+=`<div class="empty"><p>No trips found. Click Refresh.</p></div>`;
+    else h+=allTrips.map(t=>{
+      var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'No date';
+      return `<div class="trip-admin-card">
+        <div>
+          <div style="font-weight:900;font-size:14px;color:#1f2937">${t.name}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px">🏷️ ${t.id} · 📅 ${dateStr}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${tripId===t.id?`<span style="font-size:10px;font-weight:700;color:#16a34a">● CURRENT</span>`:''}
+          <button class="btn sm secondary" onclick="doSelectTrip('${t.id}')">Open</button>
+          <button class="btn danger sm" onclick="doDeleteTrip('${t.id}')">🗑️</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  return h;
 }
 
 // ============ MODALS ============
@@ -506,8 +657,7 @@ function mFriend(){
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>👤 Add Friend</h3>
-      <input id="if" class="f" type="text" placeholder="Friend's name" autocomplete="off"
-        onkeydown="if(event.key==='Enter')doAddFriend()">
+      <input id="if" class="f" type="text" placeholder="Friend's name" autocomplete="off" onkeydown="if(event.key==='Enter')doAddFriend()">
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
         <button class="btn primary" onclick="doAddFriend()">Add Friend</button>
@@ -525,8 +675,7 @@ function mExpense(){
       ${db.friends.map(f=>`
       <div class="crow">
         <span>${f.name}</span>
-        <input id="cs${f.id}" class="ci" type="number" inputmode="decimal" placeholder="0"
-          value="${csplits[f.id]||''}" oninput="calcTotal()">
+        <input id="cs${f.id}" class="ci" type="number" inputmode="decimal" placeholder="0" value="${csplits[f.id]||''}" oninput="calcTotal()">
       </div>`).join('')}
       <div class="ctot">
         <span style="font-weight:700">Total:</span>
@@ -558,8 +707,10 @@ function mExpense(){
 
 // ============ INIT ============
 render();
-if(tripId) loadTrip();
-else loadTrips();
+if(currentUser){
+  if(tripId) loadTrip();
+  else loadTrips();
+}
 </script>
 </body>
 </html>
