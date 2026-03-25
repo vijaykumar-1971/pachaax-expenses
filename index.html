@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Expense Track & Settlement</title>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff7ed;min-height:100vh;padding-bottom:60px}
@@ -106,6 +107,11 @@ button{cursor:pointer;border:none;font-family:inherit}
 .verify-box{background:white;border-radius:18px;padding:28px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.1);text-align:center}
 .copy-link{background:#f9fafb;border:2px solid #e5e7eb;border-radius:9px;padding:10px;font-size:11px;color:#374151;word-break:break-all;margin:10px 0;text-align:left;cursor:pointer}
 .copy-link:hover{background:#fef3c7;border-color:#d97706}
+/* OTP */
+.otp-input{width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:9px;font-size:26px;font-weight:900;letter-spacing:10px;text-align:center;outline:none;font-family:inherit;background:white;display:block;margin-bottom:9px}
+.otp-input:focus{border-color:#d97706}
+.otp-timer{font-size:11px;color:#9ca3af;text-align:center;margin-bottom:12px}
+.otp-timer span{color:#ef4444;font-weight:700}
 /* CUSTOM CONFIRM */
 .warn-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9998}
 .warn-box{background:white;border-radius:16px;padding:24px;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.18)}
@@ -125,11 +131,46 @@ button{cursor:pointer;border:none;font-family:inherit}
 const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
 const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
+// ============ EMAILJS CONFIG ============
+// Setup: https://emailjs.com → free account → add Gmail service → create ONE template
+// Template variables to use in your template:
+//   {{to_name}}   — recipient display name
+//   {{to_email}}  — recipient email   (set as "To Email" in template settings)
+//   {{otp_code}}  — the 6-digit OTP
+//   {{purpose}}   — "Email Verification" or "Password Reset"
+//   {{app_name}}  — "Expense Track & Settlement"
+const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';    // Account → General → Public Key
+const EJS_SERVICE_ID  = 'service_pph2qsj';    // Email Services → Service ID
+const EJS_TEMPLATE_ID = 'template_rq1ptiv';   // Email Templates → Template ID
+
 // ============ HELPERS ============
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
 function eFromKey(k){ return k.replace(/__/g,'.'); }
 function isEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function initials(s){ return (s||'?')[0].toUpperCase(); }
+function genOtp(){ return String(Math.floor(100000+Math.random()*900000)); }
+
+// ============ EMAILJS ============
+var _ejsReady = false;
+function initEJS(){
+  if(EJS_PUBLIC_KEY==='YOUR_PUBLIC_KEY') return;
+  try{ emailjs.init({publicKey:EJS_PUBLIC_KEY}); _ejsReady=true; }
+  catch(e){ console.warn('EmailJS init failed',e); }
+}
+
+async function sendOtpEmail(toEmail, toName, otp, purpose){
+  if(!_ejsReady){ console.warn('EmailJS not configured'); return false; }
+  try{
+    await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, {
+      to_email: toEmail,
+      to_name:  toName,
+      otp_code: otp,
+      purpose:  purpose,
+      app_name: 'Expense Track & Settlement'
+    });
+    return true;
+  }catch(e){ console.error('EmailJS error',e); return false; }
+}
 
 // ============ STATE ============
 let tripId      = localStorage.getItem('px-trip') || '';
@@ -144,17 +185,19 @@ let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={};
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
-let authMode    = 'login';   // 'login' | 'register' | 'forgot' | 'reset' | 'pending'
+let authMode    = 'login'; // 'login'|'register'|'otp-verify'|'forgot'|'otp-reset'
 let authErr     = '';
 let authOk      = '';
 let authLoading = false;
 let adminSubTab = 'users';
 let allUsers    = [];
 let allTrips    = [];
-// reset flow (URL-based)
-let resetTokenLocal = '';
-let resetEmailLocal = '';
-let resetOtpForDisplay = '';
+
+// OTP flow state (persisted so page refresh doesn't lose it)
+var _otpState = JSON.parse(localStorage.getItem('px-otp') || 'null');
+// _otpState = { email, displayName, passwordHash, role, otp, sentAt, purpose:'verify'|'reset' }
+var _otpResendCooldown = 0;
+var _otpTimer = null;
 
 // ============ TOAST ============
 function toast(msg){
@@ -202,32 +245,54 @@ async function faGet(path)       { var r=await fetch(aurl(path)); return r.ok?r.
 async function faSet(path,data)  { var r=await fetch(aurl(path),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); return r.ok; }
 async function faDel(path)       { var r=await fetch(aurl(path),{method:'DELETE'}); return r.ok; }
 
+// ============ OTP HELPERS ============
+function saveOtpState(s){ _otpState=s; localStorage.setItem('px-otp',JSON.stringify(s)); }
+function clearOtpState(){ _otpState=null; localStorage.removeItem('px-otp'); }
+
+function startResendTimer(){
+  _otpResendCooldown=60;
+  if(_otpTimer) clearInterval(_otpTimer);
+  _otpTimer=setInterval(function(){
+    _otpResendCooldown--;
+    var el=document.getElementById('otp-countdown');
+    if(el) el.textContent=_otpResendCooldown>0?'Resend in '+_otpResendCooldown+'s':'';
+    var btn=document.getElementById('otp-resend');
+    if(btn){ btn.disabled=_otpResendCooldown>0; btn.textContent=_otpResendCooldown>0?'Resend ('+_otpResendCooldown+'s)':'📧 Resend OTP'; }
+    if(_otpResendCooldown<=0) clearInterval(_otpTimer);
+  },1000);
+}
+
+async function doResendOtp(){
+  if(!_otpState){ authMode='login'; render(); return; }
+  var otp=genOtp();
+  _otpState.otp=otp; _otpState.sentAt=Date.now();
+  saveOtpState(_otpState);
+  var purpose=_otpState.purpose==='verify'?'Email Verification':'Password Reset';
+  var sent=await sendOtpEmail(_otpState.email,_otpState.displayName||_otpState.email,otp,purpose);
+  toast(sent?'📧 OTP resent!':'⚠️ Could not send email. Check EmailJS config.');
+  startResendTimer();
+}
+
 // ============ AUTH ACTIONS ============
 async function doLogin(){
   var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
   var p=(document.getElementById('ap')||{value:''}).value;
   authErr=''; authOk=''; authLoading=true; render();
-  if(!u||!p){authErr='Please fill all fields.';authLoading=false;render();return;}
-  if(!isEmail(u)){authErr='Enter a valid email address.';authLoading=false;render();return;}
+  if(!u||!p){ authErr='Please fill all fields.'; authLoading=false; render(); return; }
+  if(!isEmail(u)){ authErr='Enter a valid email address.'; authLoading=false; render(); return; }
   try{
     var rec=await faGet(eKey(u));
-    if(!rec){authErr='No account found. Please register.';authLoading=false;render();return;}
-    if(rec.banned){authErr='Your account has been suspended by an admin.';authLoading=false;render();return;}
-    if(!rec.approved){
-      // show pending screen
-      authLoading=false; authMode='pending';
-      localStorage.setItem('px-pending-email', u);
-      render(); return;
-    }
+    if(!rec){ authErr='No account found. Please register.'; authLoading=false; render(); return; }
+    if(rec.banned){ authErr='Your account has been suspended by an admin.'; authLoading=false; render(); return; }
+    if(!rec.verified){ authErr='Email not verified. Please complete OTP verification.'; authLoading=false; render(); return; }
     var h=await hashPwd(p);
-    if(h!==rec.passwordHash){authErr='Incorrect password.';authLoading=false;render();return;}
-    currentUser={email:u,role:rec.role||'user',displayName:rec.displayName||u};
+    if(h!==rec.passwordHash){ authErr='Incorrect password.'; authLoading=false; render(); return; }
+    currentUser={email:u, role:rec.role||'user', displayName:rec.displayName||u};
     localStorage.setItem('px-user',JSON.stringify(currentUser));
-    localStorage.removeItem('px-pending-email');
     authErr=''; authLoading=false;
     toast('👋 Welcome back, '+currentUser.displayName+'!');
     render(); loadTrips();
-  }catch(e){authErr='Connection error. Please try again.';authLoading=false;render();}
+  }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
 }
 
 async function doRegister(){
@@ -236,78 +301,103 @@ async function doRegister(){
   var p=(document.getElementById('ap')||{value:''}).value;
   var p2=(document.getElementById('ap2')||{value:''}).value;
   authErr=''; authOk=''; authLoading=true; render();
-  if(!u||!dn||!p||!p2){authErr='Please fill all fields.';authLoading=false;render();return;}
-  if(!isEmail(u)){authErr='Username must be a valid email address.';authLoading=false;render();return;}
-  if(p.length<6){authErr='Password must be at least 6 characters.';authLoading=false;render();return;}
-  if(p!==p2){authErr='Passwords do not match.';authLoading=false;render();return;}
+  if(!u||!dn||!p||!p2){ authErr='Please fill all fields.'; authLoading=false; render(); return; }
+  if(!isEmail(u)){ authErr='Username must be a valid email address.'; authLoading=false; render(); return; }
+  if(p.length<6){ authErr='Password must be at least 6 characters.'; authLoading=false; render(); return; }
+  if(p!==p2){ authErr='Passwords do not match.'; authLoading=false; render(); return; }
   try{
     var existing=await faGet(eKey(u));
-    if(existing){authErr='An account with this email already exists.';authLoading=false;render();return;}
+    if(existing && existing.verified){ authErr='An account with this email already exists.'; authLoading=false; render(); return; }
     var allR=await fetch(FB_AUTH+'.json?shallow=true'); var allD=await allR.json();
     var isFirst=!allD||Object.keys(allD).length===0;
     var h=await hashPwd(p);
-    // First user = admin, auto-approved. Others need admin approval.
+    var otp=genOtp();
+    // Store user as unverified — will be marked verified after OTP
     await faSet(eKey(u),{
-      passwordHash:h, role:isFirst?'admin':'user',
-      displayName:dn, banned:false,
-      approved:isFirst,          // admin auto-approved, others pending
-      approvedAt: isFirst?new Date().toISOString():'',
-      requestedAt:new Date().toISOString()
+      passwordHash:h, role:isFirst?'admin':'user', displayName:dn,
+      banned:false, verified:false, createdAt:new Date().toISOString()
     });
+    saveOtpState({ email:u, displayName:dn, role:isFirst?'admin':'user', otp, sentAt:Date.now(), purpose:'verify' });
+    var sent=await sendOtpEmail(u, dn, otp, 'Email Verification');
     authLoading=false;
-    if(isFirst){
-      // admin logs in directly
+    if(isFirst && !_ejsReady){
+      // Admin + no email configured: auto-verify for first user so they're not locked out
+      var rec=await faGet(eKey(u)); rec.verified=true; await faSet(eKey(u),rec);
+      clearOtpState();
       currentUser={email:u,role:'admin',displayName:dn};
       localStorage.setItem('px-user',JSON.stringify(currentUser));
-      toast('👑 Welcome Admin '+dn+'! You\'re all set.');
-      authErr=''; render(); loadTrips();
-    } else {
-      // regular user → pending screen
-      localStorage.setItem('px-pending-email', u);
-      authMode='pending'; render();
+      toast('👑 Welcome Admin '+dn+'!');
+      authErr=''; render(); loadTrips(); return;
     }
-  }catch(e){authErr='Connection error. Please try again.';authLoading=false;render();}
+    authMode='otp-verify'; render();
+    startResendTimer();
+    if(!sent) toast('⚠️ Email send failed — check EmailJS config. Enter OTP shown in console for now.');
+    if(!sent) console.log('DEV OTP:',otp);
+  }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
+}
+
+async function doVerifyOtp(){
+  var entered=(document.getElementById('otp-box')||{value:''}).value.trim();
+  authErr=''; authLoading=true; render();
+  if(!entered||entered.length!==6){ authErr='Enter the 6-digit OTP sent to your email.'; authLoading=false; render(); return; }
+  if(!_otpState){ authErr='Session expired. Please register again.'; authLoading=false; authMode='register'; render(); return; }
+  if(Date.now()-_otpState.sentAt>600000){ authErr='OTP expired (10 min). Click Resend.'; authLoading=false; render(); return; }
+  if(entered!==_otpState.otp){ authErr='Incorrect OTP. Please try again.'; authLoading=false; render(); return; }
+  try{
+    var rec=await faGet(eKey(_otpState.email));
+    if(!rec){ authErr='Account not found. Please register again.'; authLoading=false; render(); return; }
+    rec.verified=true;
+    await faSet(eKey(_otpState.email),rec);
+    currentUser={email:_otpState.email, role:rec.role, displayName:rec.displayName};
+    localStorage.setItem('px-user',JSON.stringify(currentUser));
+    clearOtpState(); if(_otpTimer) clearInterval(_otpTimer);
+    authErr=''; authLoading=false;
+    toast('✅ Email verified! Welcome, '+currentUser.displayName+'!');
+    render(); loadTrips();
+  }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
 
 async function doForgotPassword(){
   var u=(document.getElementById('au')||{value:''}).value.trim().toLowerCase();
   authErr=''; authOk=''; authLoading=true; render();
-  if(!u){authErr='Enter your email address.';authLoading=false;render();return;}
-  if(!isEmail(u)){authErr='Enter a valid email address.';authLoading=false;render();return;}
+  if(!u){ authErr='Enter your email address.'; authLoading=false; render(); return; }
+  if(!isEmail(u)){ authErr='Enter a valid email address.'; authLoading=false; render(); return; }
   try{
     var rec=await faGet(eKey(u));
-    if(!rec){authErr='No account with this email.';authLoading=false;render();return;}
-    if(!rec.approved){authErr='Your account is pending admin approval.';authLoading=false;render();return;}
-    // Generate a short numeric OTP stored in Firebase; user pastes it in
-    var otp=String(Math.floor(100000+Math.random()*900000));
-    rec.resetOtp=otp; rec.resetAt=Date.now();
-    await faSet(eKey(u),rec);
+    if(!rec || !rec.verified){ authErr='No verified account found with this email.'; authLoading=false; render(); return; }
+    if(rec.banned){ authErr='Your account has been suspended.'; authLoading=false; render(); return; }
+    var otp=genOtp();
+    saveOtpState({ email:u, displayName:rec.displayName||u, otp, sentAt:Date.now(), purpose:'reset' });
+    var sent=await sendOtpEmail(u, rec.displayName||u, otp, 'Password Reset');
     authLoading=false;
-    // Show OTP to admin — user must contact admin to get it
-    // For now store in state so admin can see it in admin panel
-    authOk=''; authMode='reset'; resetEmailLocal=u; resetOtpForDisplay=otp;
-    render();
-  }catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
+    authMode='otp-reset'; render();
+    startResendTimer();
+    if(!sent){ toast('⚠️ Email send failed — check EmailJS config.'); console.log('DEV OTP:',otp); }
+  }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
 
 async function doResetPassword(){
-  var otp=(document.getElementById('rotp')||{value:''}).value.trim();
+  var entered=(document.getElementById('otp-box')||{value:''}).value.trim();
   var np=(document.getElementById('ap')||{value:''}).value;
   var np2=(document.getElementById('ap2')||{value:''}).value;
   authErr=''; authLoading=true; render();
-  if(!otp||!np||!np2){authErr='Please fill all fields.';authLoading=false;render();return;}
-  if(np.length<6){authErr='Password must be at least 6 characters.';authLoading=false;render();return;}
-  if(np!==np2){authErr='Passwords do not match.';authLoading=false;render();return;}
+  if(!entered||!np||!np2){ authErr='Please fill all fields.'; authLoading=false; render(); return; }
+  if(entered.length!==6){ authErr='Enter the 6-digit OTP.'; authLoading=false; render(); return; }
+  if(np.length<6){ authErr='Password must be at least 6 characters.'; authLoading=false; render(); return; }
+  if(np!==np2){ authErr='Passwords do not match.'; authLoading=false; render(); return; }
+  if(!_otpState){ authErr='Session expired. Request a new OTP.'; authLoading=false; authMode='forgot'; render(); return; }
+  if(Date.now()-_otpState.sentAt>600000){ authErr='OTP expired (10 min). Click Resend.'; authLoading=false; render(); return; }
+  if(entered!==_otpState.otp){ authErr='Incorrect OTP. Please try again.'; authLoading=false; render(); return; }
   try{
-    var rec=await faGet(eKey(resetEmailLocal));
-    if(!rec||rec.resetOtp!==otp){authErr='Invalid OTP. Check with your admin.';authLoading=false;render();return;}
-    if(Date.now()-rec.resetAt>3600000){authErr='OTP expired (1 hour). Request a new one.';authLoading=false;render();return;}
-    rec.passwordHash=await hashPwd(np); rec.resetOtp=''; rec.resetAt=0;
-    await faSet(eKey(resetEmailLocal),rec);
-    resetEmailLocal=''; resetOtpForDisplay='';
-    authOk='✅ Password reset! Please log in.'; authMode='login'; authErr=''; authLoading=false;
+    var rec=await faGet(eKey(_otpState.email));
+    if(!rec){ authErr='Account not found.'; authLoading=false; render(); return; }
+    rec.passwordHash=await hashPwd(np);
+    await faSet(eKey(_otpState.email),rec);
+    clearOtpState(); if(_otpTimer) clearInterval(_otpTimer);
+    authOk='✅ Password reset successfully! Please log in.';
+    authMode='login'; authErr=''; authLoading=false;
     render();
-  }catch(e){authErr='Connection error. Try again.';authLoading=false;render();}
+  }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
 
 function doLogout(){
@@ -354,7 +444,7 @@ async function doGrantAccess(){
   try{
     var rec=await faGet(eKey(email));
     if(!rec){toast('⚠️ No registered user with this email.');return;}
-    if(!rec.approved){toast('⚠️ That user\'s account is pending admin approval.');return;}
+    if(!rec.verified){toast('⚠️ That user has not verified their email yet.');return;}
     var members=db.meta.members||[];
     if(members.indexOf(email)!==-1){toast('Already has access.');return;}
     members.push(email);
@@ -415,11 +505,11 @@ async function doPromoteUser(username){
 async function doApproveUser(username){
   try{
     var rec=await faGet(username); if(!rec)return;
-    rec.approved=true; rec.approvedAt=new Date().toISOString();
+    rec.verified=true;
     await faSet(username,rec);
     var idx=allUsers.findIndex(u=>u.username===username);
-    if(idx!==-1){allUsers[idx].approved=true; allUsers[idx].approvedAt=rec.approvedAt;}
-    toast('✅ '+eFromKey(username)+' approved!'); render();
+    if(idx!==-1) allUsers[idx].verified=true;
+    toast('✅ '+eFromKey(username)+' verified!'); render();
   }catch(e){toast('⚠️ Failed');}
 }
 async function doRejectUser(username){
@@ -430,28 +520,6 @@ async function doRejectUser(username){
       toast('🗑️ Account rejected & deleted'); render();
     }catch(e){toast('⚠️ Failed');}
   }, 'Reject');
-}
-function doAdminShowOtp(username){
-  var u=allUsers.find(u=>u.username===username);
-  if(!u||!u.resetOtp){ toast('No pending reset OTP for this user.'); return; }
-  var expired=u.resetAt&&(Date.now()-u.resetAt>3600000);
-  var d=document.getElementById('warn-dialog');
-  d.style.display='block';
-  d.innerHTML=`<div class="warn-overlay">
-    <div class="warn-box">
-      <h4>🔑 Password Reset OTP</h4>
-      <p style="margin-bottom:8px">For: <strong>${eFromKey(username)}</strong></p>
-      <div style="background:${expired?'#fef2f2':'#f0fdf4'};border:2px solid ${expired?'#fca5a5':'#86efac'};border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
-        <div style="font-size:28px;font-weight:900;letter-spacing:6px;color:${expired?'#b91c1c':'#15803d'}">${u.resetOtp}</div>
-        <div style="font-size:11px;color:${expired?'#b91c1c':'#15803d'};margin-top:4px;font-weight:700">${expired?'⚠️ EXPIRED':'✅ Valid for 1 hour'}</div>
-      </div>
-      <p style="font-size:12px;color:#6b7280;margin-bottom:14px">${expired?'User must request a new OTP.':'Share this code with the user via WhatsApp, phone, or in person.'}</p>
-      <div class="warn-btns">
-        <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
-        ${!expired?`<button style="background:#d97706;color:white" onclick="navigator.clipboard&&navigator.clipboard.writeText('${u.resetOtp}');toast('📋 OTP copied!')">📋 Copy OTP</button>`:''}
-      </div>
-    </div>
-  </div>`;
 }
 async function doAdminDeleteTrip(id){
   warnConfirm('Delete trip <strong>'+id+'</strong>? All its data will be permanently lost.', async function(){
@@ -546,8 +614,8 @@ function render(){
   if(!root)return;
 
   if(!currentUser){
-    if(authMode==='pending') { root.innerHTML=pendingScreen(); return; }
-    if(authMode==='reset')   { root.innerHTML=resetScreen();   return; }
+    if(authMode==='otp-verify') { root.innerHTML=otpScreen('verify'); return; }
+    if(authMode==='otp-reset')  { root.innerHTML=otpScreen('reset');  return; }
     root.innerHTML=authScreen(); return;
   }
   if(currentUser.banned){root.innerHTML=bannedScreen();return;}
@@ -643,57 +711,43 @@ function authScreen(){
   </div>`;
 }
 
-// ============ PENDING APPROVAL SCREEN ============
-function pendingScreen(){
-  var email=localStorage.getItem('px-pending-email')||'';
-  return `<div class="auth-screen">
-    <div style="font-size:52px;margin-bottom:12px">⏳</div>
-    <div class="auth-box" style="text-align:center">
-      <div style="font-size:32px;margin-bottom:10px">🔔</div>
-      <h2 style="font-size:19px;font-weight:900;color:#1f2937;margin-bottom:8px">Waiting for Admin Approval</h2>
-      <div style="background:#fef9c3;border:2px solid #fbbf24;border-radius:10px;padding:12px 14px;margin-bottom:16px;text-align:left">
-        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">📬 Request Submitted!</div>
-        <div style="font-size:12px;color:#78350f;line-height:1.6">
-          Your registration request for <strong>${email}</strong> has been sent to the admin for approval.
-          You'll be able to log in once the admin approves your account.
-        </div>
-      </div>
-      <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:#1e40af;text-align:left;line-height:1.6">
-        💡 <strong>What happens next?</strong><br>
-        The admin will see your request in the <strong>👑 Admin Panel → Users</strong> section
-        and approve or reject it. Come back here and try logging in after approval.
-      </div>
-      <button class="btn primary" onclick="authMode='login';authErr='';authOk='';render()" style="width:100%;margin-bottom:8px">🔄 Check Approval Status</button>
-      <button onclick="localStorage.removeItem('px-pending-email');authMode='login';render()" style="background:none;color:#9ca3af;font-size:11px;font-weight:600">← Back to Login</button>
-    </div>
-  </div>`;
-}
-
-// ============ RESET PASSWORD SCREEN (OTP from admin) ============
-function resetScreen(){
+// ============ OTP SCREEN (verify + reset) ============
+function otpScreen(purpose){
+  var isVerify=purpose==='verify';
+  var email=_otpState?_otpState.email:'';
+  var secsLeft=_otpResendCooldown;
   return `<div class="auth-screen">
     <div class="auth-box">
-      <div style="font-size:40px;text-align:center;margin-bottom:10px">🔑</div>
-      <h2 style="font-size:18px;font-weight:900;color:#1f2937;margin-bottom:4px">Reset Password</h2>
-      <p style="font-size:12px;color:#6b7280;margin-bottom:14px">
-        Enter the OTP code given to you by your admin, then set a new password.
-      </p>
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:44px">${isVerify?'📧':'🔑'}</div>
+        <h2 style="font-size:19px;font-weight:900;color:#1f2937;margin-top:8px">${isVerify?'Verify Your Email':'Reset Password'}</h2>
+        <p style="font-size:12px;color:#6b7280;margin-top:6px;line-height:1.6">
+          A 6-digit OTP was sent to<br><strong style="color:#d97706">${email}</strong>.<br>
+          <span style="font-size:11px">Check your inbox and spam folder.</span>
+        </p>
+      </div>
       ${authErr?`<div class="err-box">⚠️ ${authErr}</div>`:''}
-      <span class="lbl">Email</span>
-      <input class="f" type="email" value="${resetEmailLocal}" readonly style="background:#f3f4f6;color:#6b7280">
-      <span class="lbl">OTP Code (from Admin)</span>
-      <input id="rotp" class="f" type="text" inputmode="numeric" placeholder="e.g. 482910" maxlength="6"
-        onkeydown="if(event.key==='Enter')doResetPassword()">
-      <span class="lbl">New Password</span>
+      <span class="lbl">Enter OTP</span>
+      <input id="otp-box" class="otp-input" type="text" inputmode="numeric" maxlength="6"
+        placeholder="000000" autocomplete="one-time-code"
+        onkeydown="if(event.key==='Enter')${isVerify?'doVerifyOtp()':'doResetPassword()'}">
+      ${!isVerify?`<span class="lbl">New Password</span>
       <input id="ap" class="f" type="password" placeholder="••••••••" autocomplete="new-password">
-      <span class="lbl">Confirm New Password</span>
+      <span class="lbl">Confirm Password</span>
       <input id="ap2" class="f" type="password" placeholder="••••••••" autocomplete="new-password"
-        onkeydown="if(event.key==='Enter')doResetPassword()">
-      <button class="btn primary" onclick="doResetPassword()" style="width:100%;padding:13px;margin-top:4px" ${authLoading?'disabled':''}>
-        ${authLoading?'⏳ Saving...':'🔒 Reset Password'}
+        onkeydown="if(event.key==='Enter')doResetPassword()">`:``}
+      <div class="otp-timer"><span id="otp-countdown">${secsLeft>0?'Resend in '+secsLeft+'s':''}</span></div>
+      <button class="btn primary" onclick="${isVerify?'doVerifyOtp()':'doResetPassword()'}"
+        style="width:100%;padding:13px;font-size:14px;margin-bottom:10px" ${authLoading?'disabled':''}>
+        ${authLoading?'⏳ Verifying...':(isVerify?'✅ Verify &amp; Activate':'🔒 Reset Password')}
       </button>
-      <div style="text-align:center;margin-top:10px">
-        <button onclick="authMode='login';authErr='';resetEmailLocal='';render()" style="background:none;color:#6b7280;font-size:11px;font-weight:600">← Back to Login</button>
+      <button id="otp-resend" class="btn secondary" onclick="doResendOtp()"
+        style="width:100%;margin-bottom:12px" ${secsLeft>0?'disabled':''}>
+        ${secsLeft>0?'Resend ('+secsLeft+'s)':'📧 Resend OTP'}
+      </button>
+      <div style="text-align:center">
+        <button onclick="clearOtpState();authMode='${isVerify?'register':'forgot'}';authErr='';render()"
+          style="background:none;color:#6b7280;font-size:11px;font-weight:600">← Back</button>
       </div>
     </div>
   </div>`;
@@ -850,28 +904,28 @@ function tabAdmin(){
   if(adminSubTab==='users'){
     if(!allUsers.length) h+=`<div class="empty"><p>No users. Click Refresh.</p></div>`;
     else {
-      var pending=allUsers.filter(u=>!u.approved&&!u.banned);
-      var active =allUsers.filter(u=> u.approved&&!u.banned);
-      var banned =allUsers.filter(u=> u.banned);
+      var unverified=allUsers.filter(u=>!u.verified&&!u.banned);
+      var active    =allUsers.filter(u=> u.verified&&!u.banned);
+      var banned    =allUsers.filter(u=> u.banned);
 
-      // ---- PENDING APPROVALS (highlighted) ----
-      if(pending.length){
+      // ---- UNVERIFIED (pending email OTP) ----
+      if(unverified.length){
         h+=`<div style="background:linear-gradient(135deg,#fef9c3,#fef3c7);border:2px solid #fbbf24;border-radius:12px;padding:12px 14px;margin-bottom:12px">
           <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-            <span style="background:#ef4444;color:white;border-radius:20px;padding:2px 8px;font-size:11px">${pending.length}</span>
-            PENDING APPROVAL
+            <span style="background:#ef4444;color:white;border-radius:20px;padding:2px 8px;font-size:11px">${unverified.length}</span>
+            PENDING EMAIL VERIFICATION
           </div>`;
-        h+=pending.map(u=>`
+        h+=unverified.map(u=>`
           <div style="background:white;border-radius:10px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
             <div class="av" style="width:36px;height:36px;font-size:14px">${initials(u.displayName||u.email)}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:800;font-size:13px">${u.displayName||'—'}</div>
               <div style="font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
-              <div style="font-size:10px;color:#9ca3af;margin-top:2px">Requested: ${u.requestedAt?new Date(u.requestedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'}</div>
+              <div style="font-size:10px;color:#9ca3af;margin-top:2px">Registered: ${u.createdAt?new Date(u.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'-'}</div>
             </div>
             <div style="display:flex;gap:5px;flex-shrink:0">
-              <button class="btn green sm" onclick="doApproveUser('${u.username}')">✅ Approve</button>
-              <button class="btn danger sm" onclick="doRejectUser('${u.username}')">✗ Reject</button>
+              <button class="btn green sm" onclick="doApproveUser('${u.username}')" title="Manually verify this user">✅ Verify</button>
+              <button class="btn danger sm" onclick="doRejectUser('${u.username}')">✗ Delete</button>
             </div>
           </div>`).join('');
         h+=`</div>`;
@@ -883,25 +937,23 @@ function tabAdmin(){
         h+=active.map(u=>{
           var isMe=u.email===currentUser.email;
           var roleB=u.role==='admin'?`<span class="badge badge-admin">👑 Admin</span>`:`<span class="badge badge-user">👤 User</span>`;
-          var hasOtp=u.resetOtp&&(Date.now()-u.resetAt<3600000);
           return `<div class="user-card">
             <div class="av ${u.role==='admin'?'admin-av':''}">${initials(u.displayName||u.email)}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:900;font-size:14px">${u.displayName||'—'} ${isMe?'<span style="font-size:10px;color:#d97706">(you)</span>':''}</div>
               <div style="font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
-              <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">${roleB}${hasOtp?`<span class="badge" style="background:#fef9c3;color:#854d0e;cursor:pointer" onclick="doAdminShowOtp('${u.username}')">🔑 OTP Pending</span>`:''}</div>
+              <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">${roleB}</div>
             </div>
             ${!isMe?`<div class="user-actions">
               <button class="btn danger sm" onclick="doBanUser('${u.username}',true)">🚫 Ban</button>
               ${u.role!=='admin'?`<button class="btn sm" style="background:#f5f3ff;color:#6d28d9" onclick="doPromoteUser('${u.username}')">👑</button>`:''}
-              ${hasOtp?`<button class="btn sm" style="background:#fef9c3;color:#92400e" onclick="doAdminShowOtp('${u.username}')">🔑 OTP</button>`:''}
               <button class="btn danger sm" onclick="doDeleteUser('${u.username}')">🗑️</button>
             </div>`:'<div style="color:#9ca3af;font-size:11px">You</div>'}
           </div>`;
         }).join('');
       }
 
-      // ---- BANNED USERS ----
+      // ---- BANNED ----
       if(banned.length){
         h+=`<div style="font-size:11px;font-weight:800;color:#6b7280;text-transform:uppercase;margin:12px 0 8px">Banned (${banned.length})</div>`;
         h+=banned.map(u=>`
@@ -1023,8 +1075,12 @@ function mAccess(){
 
 // ============ INIT ============
 (function init(){
-  // Restore pending state if user was mid-registration
-  if(!currentUser && localStorage.getItem('px-pending-email')) authMode='pending';
+  initEJS();
+  // Restore OTP screen if user closed browser mid-verification/reset
+  if(!currentUser && _otpState){
+    authMode = _otpState.purpose==='verify' ? 'otp-verify' : 'otp-reset';
+    startResendTimer();
+  }
   render();
   if(currentUser){
     if(tripId) loadTrip(); else loadTrips();
