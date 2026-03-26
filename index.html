@@ -448,6 +448,7 @@ async function doDeleteCurrentTrip(){
       await fbDel(tripId);
       tripId=''; localStorage.removeItem('px-trip');
       db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[];
+      dashLoaded=false;
       toast('🗑️ Trip deleted'); render(); loadTrips();
     }catch(e){toast('⚠️ Delete failed');}
   }, 'Delete Trip');
@@ -557,7 +558,7 @@ async function loadTrip(){
 }
 
 async function saveTrip(){
-  syncing=true; updateSync();
+  syncing=true; updateSync(); dashLoaded=false;
   try{var ok=await fbSet(tripId,db);if(ok){lastSync=new Date().toLocaleTimeString();toast('✅ Saved!');}else toast('⚠️ Save failed');}
   catch(e){toast('⚠️ No internet');}
   syncing=false; updateSync();
@@ -583,33 +584,33 @@ async function loadTrips(){
 async function loadDashboard(){
   dashLoading=true; dashLoaded=false; render();
   try{
-    // Re-use trips list if already loaded, else fetch
-    var list=trips.length?trips:[];
-    if(!list.length){
-      var r=await fetch(FB+'.json?shallow=true');
-      if(r.ok){
-        var d=await r.json();
-        if(d){
-          var keys=Object.keys(d);
-          var metas=await Promise.all(keys.map(async k=>{
-            try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||'',meta:m||{}};}
-            catch(e){return{id:k,name:k,date:'',meta:{}};}
-          }));
-          list=metas.filter(t=>canSeeTrip(t.meta));
-        }
+    // Always fetch fresh from Firebase — don't rely on the trips array
+    var r=await fetch(FB+'.json?shallow=true');
+    var list=[];
+    if(r.ok){
+      var d=await r.json();
+      if(d){
+        var keys=Object.keys(d);
+        var metas=await Promise.all(keys.map(async k=>{
+          try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||'',meta:m||{}};}
+          catch(e){return{id:k,name:k,date:'',meta:{}};}
+        }));
+        list=metas.filter(t=>canSeeTrip(t.meta));
       }
     }
-    // Fetch full data for each visible trip
+    // Fetch full trip data for each visible trip in parallel
     dashData=await Promise.all(list.map(async t=>{
       try{
         var full=await fbGet(t.id);
         return{
           id:t.id, name:t.name, date:t.date, meta:t.meta,
-          friends:  (full&&full.friends)   ||[],
-          expenses: (full&&full.expenses)  ||[],
-          settlements:(full&&full.settlements)||[]
+          friends:    (full&&full.friends)     ||[],
+          expenses:   (full&&full.expenses)    ||[],
+          settlements:(full&&full.settlements) ||[]
         };
-      }catch(e){return{id:t.id,name:t.name,date:t.date,meta:t.meta,friends:[],expenses:[],settlements:[]};}
+      }catch(e){
+        return{id:t.id,name:t.name,date:t.date,meta:t.meta,friends:[],expenses:[],settlements:[]};
+      }
     }));
     dashData.sort((a,b)=>b.date.localeCompare(a.date));
   }catch(e){dashData=[];}
@@ -732,11 +733,11 @@ async function doCreateTrip(){
     settlements:[],
     meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}
   };
-  modal=null;render();
+  modal=null; dashLoaded=false; render();
   await fbSet(tripId, db);
 }
-function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;render();loadTrip();}
-function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];render();loadTrips();}
+function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;render();loadTrip();}
+function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;render();loadTrips();}
 function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
 function doSetSplit(t){
   db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
@@ -807,7 +808,7 @@ function render(){
     <button class="tab ${tab==='expenses'?'on':''}" onclick="tab='expenses';render()">Expenses</button>
     <button class="tab ${tab==='friends'?'on':''}" onclick="tab='friends';render()">Friends (${db.friends.length})</button>
     <button class="tab ${tab==='settle'?'on':''}" onclick="tab='settle';render()">Settle Up</button>
-    <button class="tab ${tab==='dashboard'?'on':''}" onclick="tab='dashboard';if(!dashLoaded&&!dashLoading)loadDashboard();render()">📊 Summary</button>
+    <button class="tab ${tab==='dashboard'?'on':''}" onclick="tab='dashboard';if(!dashLoading)loadDashboard();render()">📊 Summary</button>
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
