@@ -144,16 +144,18 @@ const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
 const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
 // ============ EMAILJS CONFIG ============
-// Setup: https://emailjs.com → free account → add Gmail service → create ONE template
-// Template variables to use in your template:
-//   {{to_name}}   — recipient display name
-//   {{to_email}}  — recipient email   (set as "To Email" in template settings)
-//   {{otp_code}}  — the 6-digit OTP
-//   {{purpose}}   — "Email Verification" or "Password Reset"
-//   {{app_name}}  — "Expense Track & Settlement"
-const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';    // Account → General → Public Key
-const EJS_SERVICE_ID  = 'service_pph2qsj';    // Email Services → Service ID
-const EJS_TEMPLATE_ID = 'template_rq1ptiv';   // Email Templates → Template ID
+// These are loaded from localStorage so you can enter them in the Settings panel
+// without editing the HTML file directly.
+function getEjsCfg(){
+  return {
+    publicKey:  localStorage.getItem('ejs-pk')  || '',
+    serviceId:  localStorage.getItem('ejs-sid') || '',
+    templateId: localStorage.getItem('ejs-tid') || '',
+  };
+}
+function ejsConfigured(){
+  var c=getEjsCfg(); return !!(c.publicKey && c.serviceId && c.templateId);
+}
 
 // ============ HELPERS ============
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
@@ -164,18 +166,18 @@ function genOtp(){ return String(Math.floor(100000+Math.random()*900000)); }
 
 // ============ EMAILJS ============
 function initEJS(){
-  try{
-    if(EJS_PUBLIC_KEY && EJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY'){
-      emailjs.init({ publicKey: EJS_PUBLIC_KEY });
-    }
-  }catch(e){ console.warn('EmailJS init failed', e); }
+  var c=getEjsCfg();
+  if(!c.publicKey) return;
+  try{ emailjs.init({ publicKey: c.publicKey }); }
+  catch(e){ console.warn('EmailJS init failed', e); }
 }
 
 async function sendOtpEmail(toEmail, toName, otp, purpose){
+  var c=getEjsCfg();
   try{
     await emailjs.send(
-      EJS_SERVICE_ID,
-      EJS_TEMPLATE_ID,
+      c.serviceId,
+      c.templateId,
       {
         to_email: toEmail,
         to_name:  toName,
@@ -183,7 +185,7 @@ async function sendOtpEmail(toEmail, toName, otp, purpose){
         purpose:  purpose,
         app_name: 'Expense Track & Settlement'
       },
-      { publicKey: EJS_PUBLIC_KEY }
+      { publicKey: c.publicKey }
     );
     return { ok: true };
   }catch(e){
@@ -836,6 +838,8 @@ function render(){
 function authScreen(){
   var isLogin=authMode==='login';
   var isForgot=authMode==='forgot';
+  var cfg=getEjsCfg();
+  var ejsOk=ejsConfigured();
   return `<div class="auth-screen">
     <div style="font-size:52px;margin-bottom:8px">💰</div>
     <h1 style="font-size:22px;font-weight:900;color:#92400e;margin-bottom:4px">Expense Track &amp; Settlement</h1>
@@ -861,7 +865,7 @@ function authScreen(){
         onkeydown="if(event.key==='Enter')doRegister()">`:``}
       <button class="btn primary" onclick="${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}"
         style="width:100%;padding:13px;font-size:14px;margin-top:4px" ${authLoading?'disabled':''}>
-        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📤 Request OTP':'🚀 Create Account')}
+        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📧 Send OTP':'🚀 Create Account')}
       </button>
       ${isLogin?`<div style="display:flex;justify-content:space-between;margin-top:12px">
         <button onclick="authMode='register';authErr='';authOk='';render()" style="background:none;color:#d97706;font-weight:700;font-size:11px">No account? Register →</button>
@@ -873,7 +877,75 @@ function authScreen(){
       ${!isLogin&&!isForgot?`<p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">
         First account registered becomes <strong>Admin 👑</strong></p>`:''}
     </div>
+
+    <!-- EmailJS Settings -->
+    <div style="width:100%;max-width:360px;margin-top:12px">
+      <details ${!ejsOk?'open':''}>
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:${ejsOk?'#16a34a':'#b91c1c'};padding:10px 14px;background:white;border-radius:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,0.08);list-style:none">
+          <span>${ejsOk?'✅ EmailJS configured':'⚠️ EmailJS not configured — tap to set up'}</span>
+          <span style="font-size:10px;opacity:0.5">▼</span>
+        </summary>
+        <div style="background:white;border-radius:0 0 10px 10px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07)">
+          <p style="font-size:11px;color:#6b7280;margin-bottom:10px;line-height:1.5">
+            Paste your <a href="https://emailjs.com" target="_blank" style="color:#d97706;font-weight:700">EmailJS</a> keys. Saved in this browser only.
+          </p>
+          <span class="lbl">Public Key</span>
+          <input id="ejs-pk" class="f" type="text" placeholder="e.g. aBcDeFgH..." value="${cfg.publicKey}" style="font-family:monospace;font-size:12px">
+          <span class="lbl">Service ID</span>
+          <input id="ejs-sid" class="f" type="text" placeholder="e.g. service_xxxxxx" value="${cfg.serviceId}" style="font-family:monospace;font-size:12px">
+          <span class="lbl">Template ID</span>
+          <input id="ejs-tid" class="f" type="text" placeholder="e.g. template_xxxxxx" value="${cfg.templateId}" style="font-family:monospace;font-size:12px">
+          <div style="display:flex;gap:8px">
+            <button class="btn primary sm" style="flex:1" onclick="doSaveEjsConfig()">💾 Save Keys</button>
+            <button class="btn secondary sm" style="flex:1" onclick="doTestEjs()">📧 Test Email</button>
+          </div>
+          <div id="ejs-test-result" style="margin-top:8px;font-size:12px;line-height:1.5"></div>
+          <p style="font-size:10px;color:#9ca3af;margin-top:10px;line-height:1.5">
+            In your EmailJS template, set <strong>To&nbsp;Email&nbsp;= {{to_email}}</strong><br>
+            Body variables: <code>{{to_name}} {{otp_code}} {{purpose}} {{app_name}}</code>
+          </p>
+        </div>
+      </details>
+    </div>
   </div>`;
+}
+
+function doSaveEjsConfig(){
+  var pk =(document.getElementById('ejs-pk') ||{value:''}).value.trim();
+  var sid=(document.getElementById('ejs-sid')||{value:''}).value.trim();
+  var tid=(document.getElementById('ejs-tid')||{value:''}).value.trim();
+  if(!pk||!sid||!tid){ toast('⚠️ Fill in all three fields'); return; }
+  localStorage.setItem('ejs-pk',  pk);
+  localStorage.setItem('ejs-sid', sid);
+  localStorage.setItem('ejs-tid', tid);
+  initEJS();
+  toast('✅ EmailJS config saved!');
+  authErr=''; render();
+}
+
+async function doTestEjs(){
+  var pk =(document.getElementById('ejs-pk') ||{value:''}).value.trim();
+  var sid=(document.getElementById('ejs-sid')||{value:''}).value.trim();
+  var tid=(document.getElementById('ejs-tid')||{value:''}).value.trim();
+  var testEmail=(document.getElementById('au')||{value:''}).value.trim();
+  var res=document.getElementById('ejs-test-result');
+  if(!pk||!sid||!tid){
+    if(res)res.innerHTML='<span style="color:#b91c1c">⚠️ Save your keys first.</span>'; return;
+  }
+  if(!testEmail||!isEmail(testEmail)){
+    if(res)res.innerHTML='<span style="color:#b91c1c">⚠️ Enter your email in the Email Address field above, then click Test.</span>'; return;
+  }
+  if(res)res.innerHTML='<span style="color:#6b7280">⏳ Sending test email...</span>';
+  try{
+    await emailjs.send(sid, tid, {
+      to_email: testEmail, to_name: 'Test User',
+      otp_code: '123456', purpose: 'Test', app_name: 'Expense Track & Settlement'
+    },{ publicKey: pk });
+    if(res)res.innerHTML='<span style="color:#16a34a;font-weight:700">✅ Test email sent to '+testEmail+'! Check inbox &amp; spam.</span>';
+  }catch(e){
+    var msg=(e&&(e.text||e.message||JSON.stringify(e)))||'Unknown';
+    if(res)res.innerHTML='<span style="color:#b91c1c;font-weight:700">❌ '+msg+'</span>';
+  }
 }
 
 // ============ OTP SCREEN (verify + reset) ============
