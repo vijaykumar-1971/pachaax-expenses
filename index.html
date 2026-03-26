@@ -144,16 +144,21 @@ const FB      = 'https://pachaax-expenses-default-rtdb.firebaseio.com/trips';
 const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 
 // ============ EMAILJS CONFIG ============
-// Setup: https://emailjs.com → free account → add Gmail service → create ONE template
-// Template variables to use in your template:
-//   {{to_name}}   — recipient display name
-//   {{to_email}}  — recipient email   (set as "To Email" in template settings)
-//   {{otp_code}}  — the 6-digit OTP
-//   {{purpose}}   — "Email Verification" or "Password Reset"
-//   {{app_name}}  — "Expense Track & Settlement"
-const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';    // Account → General → Public Key
-const EJS_SERVICE_ID  = 'service_pph2qsj';    // Email Services → Service ID
-const EJS_TEMPLATE_ID = 'template_rq1ptiv';   // Email Templates → Template ID
+// Fill in your EmailJS credentials below — they are baked into the HTML file
+// and work seamlessly across all browsers without any setup step.
+// Get them from https://emailjs.com → your account dashboard.
+const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';   // Account → General → Public Key
+const EJS_SERVICE_ID  = 'service_pph2qsj';   // Email Services → your service → Service ID
+const EJS_TEMPLATE_ID = 'template_rq1ptiv';  // Email Templates → your template → Template ID
+// Template must have "To Email" = {{to_email}}
+// Body variables: {{to_name}} {{otp_code}} {{purpose}} {{app_name}}
+
+function getEjsCfg(){
+  return { publicKey: EJS_PUBLIC_KEY, serviceId: EJS_SERVICE_ID, templateId: EJS_TEMPLATE_ID };
+}
+function ejsConfigured(){
+  return EJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY' && !!EJS_SERVICE_ID && !!EJS_TEMPLATE_ID;
+}
 
 // ============ HELPERS ============
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
@@ -164,18 +169,18 @@ function genOtp(){ return String(Math.floor(100000+Math.random()*900000)); }
 
 // ============ EMAILJS ============
 function initEJS(){
-  try{
-    if(EJS_PUBLIC_KEY && EJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY'){
-      emailjs.init({ publicKey: EJS_PUBLIC_KEY });
-    }
-  }catch(e){ console.warn('EmailJS init failed', e); }
+  var c=getEjsCfg();
+  if(!c.publicKey) return;
+  try{ emailjs.init({ publicKey: c.publicKey }); }
+  catch(e){ console.warn('EmailJS init failed', e); }
 }
 
 async function sendOtpEmail(toEmail, toName, otp, purpose){
+  var c=getEjsCfg();
   try{
     await emailjs.send(
-      EJS_SERVICE_ID,
-      EJS_TEMPLATE_ID,
+      c.serviceId,
+      c.templateId,
       {
         to_email: toEmail,
         to_name:  toName,
@@ -183,7 +188,7 @@ async function sendOtpEmail(toEmail, toName, otp, purpose){
         purpose:  purpose,
         app_name: 'Expense Track & Settlement'
       },
-      { publicKey: EJS_PUBLIC_KEY }
+      { publicKey: c.publicKey }
     );
     return { ok: true };
   }catch(e){
@@ -202,7 +207,7 @@ let syncing     = false;
 let lastSync    = '';
 let modal       = null;
 let editId      = null;
-let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='';
+let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='', ecat='';
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
@@ -685,6 +690,7 @@ async function doAddExpense(){
   var payer=(document.getElementById('iep')||{value:''}).value;
   var ed=(document.getElementById('iedate')||{value:''}).value;
   var et=(document.getElementById('ietime')||{value:''}).value;
+  var cat=(document.getElementById('iecat')||{value:''}).value.trim();
   if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
   var split={};
   if(esplit==='equal'){
@@ -696,17 +702,14 @@ async function doAddExpense(){
     if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}
     db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);
   }
-  // Combine date + time into ISO string; fall back to now
-  var expDatetime = (ed&&et) ? new Date(ed+'T'+et).toISOString()
-                  : ed       ? new Date(ed+'T00:00').toISOString()
-                  : new Date().toISOString();
+  var expDatetime=(ed&&et)?new Date(ed+'T'+et).toISOString():ed?new Date(ed+'T00:00').toISOString():new Date().toISOString();
   if(editId){
     var idx=db.expenses.findIndex(e=>e.id===editId);
-    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime};
+    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat};
   }else{
-    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime});
+    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat});
   }
-  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';
+  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';
   render();await saveTrip();
 }
 async function doDelExpense(id){
@@ -716,13 +719,9 @@ async function doDelExpense(id){
 }
 function doEditExpense(id){
   var e=db.expenses.find(x=>x.id===id);if(!e)return;
-  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;
-  // restore date/time from saved ISO string
-  if(e.date){
-    var d=new Date(e.date);
-    edate=d.toISOString().split('T')[0];
-    etime=d.toTimeString().slice(0,5);
-  }else{ edate=''; etime=''; }
+  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;ecat=e.category||'';
+  if(e.date){var d=new Date(e.date);edate=d.toISOString().split('T')[0];etime=d.toTimeString().slice(0,5);}
+  else{edate='';etime='';}
   var vals=Object.values(e.splitAmong);
   var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);
   esplit=eq?'equal':'custom';
@@ -739,16 +738,11 @@ async function doReset(){
 async function doCreateTrip(){
   var n=(document.getElementById('itn')||{value:''}).value.trim();
   var dt=(document.getElementById('itd')||{value:''}).value;
-  if(!n){toast('Enter a trip name!');return;}
+  if(!n){toast('Enter a story name!');return;}
   tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
   localStorage.setItem('px-trip',tripId);
   var creatorFriend={id:'f'+Date.now(), name:currentUser.displayName};
-  db={
-    friends:[creatorFriend],
-    expenses:[],
-    settlements:[],
-    meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}
-  };
+  db={friends:[creatorFriend],expenses:[],settlements:[],meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}};
   modal=null; dashLoaded=false; render();
   await fbSet(tripId, db);
 }
@@ -762,7 +756,31 @@ function doSetSplit(t){
   var dep=document.getElementById('iep');if(dep)epayer=dep.value;
   var ded2=document.getElementById('iedate');if(ded2)edate=ded2.value;
   var det=document.getElementById('ietime');if(det)etime=det.value;
+  var dec=document.getElementById('iecat');if(dec)ecat=dec.value;
   esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);
+}
+
+// ============ CATEGORY MANAGEMENT (admin) ============
+function getCategories(){
+  // Stored globally in Firebase under trips/__categories, loaded into db.meta.categories
+  return (db.meta&&db.meta.categories)||[];
+}
+async function doAddCategory(){
+  var v=(document.getElementById('new-cat')||{value:''}).value.trim();
+  if(!v){toast('Enter a category name');return;}
+  var cats=getCategories();
+  if(cats.includes(v)){toast('Already exists');return;}
+  cats.push(v);
+  db.meta.categories=cats;
+  await fbSet(tripId+'/meta',db.meta);
+  document.getElementById('new-cat').value='';
+  toast('✅ Category added'); render();
+}
+async function doDelCategory(cat){
+  var cats=getCategories().filter(c=>c!==cat);
+  db.meta.categories=cats;
+  await fbSet(tripId+'/meta',db.meta);
+  toast('🗑️ Category removed'); render();
 }
 
 function copyText(text){
@@ -861,7 +879,7 @@ function authScreen(){
         onkeydown="if(event.key==='Enter')doRegister()">`:``}
       <button class="btn primary" onclick="${isLogin?'doLogin()':isForgot?'doForgotPassword()':'doRegister()'}"
         style="width:100%;padding:13px;font-size:14px;margin-top:4px" ${authLoading?'disabled':''}>
-        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📤 Request OTP':'🚀 Create Account')}
+        ${authLoading?'⏳ Please wait...':(isLogin?'🔐 Login':isForgot?'📧 Send OTP':'🚀 Create Account')}
       </button>
       ${isLogin?`<div style="display:flex;justify-content:space-between;margin-top:12px">
         <button onclick="authMode='register';authErr='';authOk='';render()" style="background:none;color:#d97706;font-weight:700;font-size:11px">No account? Register →</button>
@@ -971,7 +989,7 @@ function tabExp(bal){
   var h=`<div class="shd"><h2>All Expenses</h2>
     <div style="display:flex;gap:6px">
       ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this trip">🗑️ Trip</button>`:''}
-      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
+      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
     </div>
   </div>`;
   if(!db.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn primary" onclick="tab='friends';render()">Go to Friends</button></div>`;
@@ -984,10 +1002,11 @@ function tabExp(bal){
   h+=db.expenses.map(e=>{
     var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
     var expDt=e.date?new Date(e.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
+    var catBadge=e.category?`<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;margin-left:5px">🏷️ ${e.category}</span>`:'';
     return `<div class="card">
       <div class="row">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}</div>
+          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}${catBadge}</div>
           <div style="font-size:11px;color:#6b7280;margin-top:2px">
             Paid by <strong style="color:#d97706">${gname(e.paidBy)}</strong>
             ${expDt?`<span style="color:#9ca3af"> · 🕐 ${expDt}</span>`:''}
@@ -1266,10 +1285,11 @@ function mFriend(){
 function mExpense(){
   var opts=db.friends.map(f=>`<option value="${f.id}" ${epayer===f.id?'selected':''}>${f.name}</option>`).join('');
   var isEdit=!!editId;
-  // Default date = today, time = now (only for new expenses)
   var nowDate=new Date();
   var defDate=edate||nowDate.toISOString().split('T')[0];
   var defTime=etime||nowDate.toTimeString().slice(0,5);
+  var cats=getCategories();
+  var catOpts=cats.map(c=>`<option value="${c}" ${ecat===c?'selected':''}>${c}</option>`).join('');
   var cbox=esplit==='custom'?`
     <div class="cbox">
       <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:7px">AMOUNT PER PERSON:</div>
@@ -1292,6 +1312,13 @@ function mExpense(){
       <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()">
       <span class="lbl">Who Paid?</span>
       <select id="iep" class="f"><option value="">Select person</option>${opts}</select>
+      <span class="lbl">Category</span>
+      <select id="iecat" class="f">
+        <option value="">— No category —</option>
+        ${catOpts}
+      </select>
+      ${!cats.length&&currentUser.role==='admin'?`<p style="font-size:11px;color:#9ca3af;margin:-4px 0 8px">No categories yet. Add them in 👑 Admin → Categories.</p>`:''}
+      ${!cats.length&&currentUser.role!=='admin'?`<p style="font-size:11px;color:#9ca3af;margin:-4px 0 8px">Ask your admin to add categories.</p>`:''}
       <div style="display:flex;gap:8px">
         <div style="flex:1">
           <span class="lbl">Date</span>
