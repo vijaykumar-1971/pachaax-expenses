@@ -107,6 +107,18 @@ button{cursor:pointer;border:none;font-family:inherit}
 .verify-box{background:white;border-radius:18px;padding:28px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.1);text-align:center}
 .copy-link{background:#f9fafb;border:2px solid #e5e7eb;border-radius:9px;padding:10px;font-size:11px;color:#374151;word-break:break-all;margin:10px 0;text-align:left;cursor:pointer}
 .copy-link:hover{background:#fef3c7;border-color:#d97706}
+/* DASHBOARD */
+.dash-card{background:white;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.07);border:2px solid #e5e7eb;cursor:pointer;transition:border-color 0.15s}
+.dash-card:hover{border-color:#d97706}
+.dash-card.active-trip{border-color:#d97706;background:#fffbeb}
+.dash-pill{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:800}
+.dash-settled{background:#f0fdf4;color:#15803d}
+.dash-pending{background:#fef2f2;color:#b91c1c}
+.dash-summary-bar{background:linear-gradient(90deg,#d97706,#ea580c);border-radius:12px;padding:14px 16px;margin-bottom:14px;color:white}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.dash-stat{background:rgba(255,255,255,0.15);border-radius:9px;padding:10px;text-align:center}
+.dash-stat .n{font-size:20px;font-weight:900}
+.dash-stat .l{font-size:10px;font-weight:700;opacity:0.8;margin-top:2px}
 /* OTP */
 .otp-input{width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:9px;font-size:26px;font-weight:900;letter-spacing:10px;text-align:center;outline:none;font-family:inherit;background:white;display:block;margin-bottom:9px}
 .otp-input:focus{border-color:#d97706}
@@ -139,9 +151,9 @@ const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 //   {{otp_code}}  — the 6-digit OTP
 //   {{purpose}}   — "Email Verification" or "Password Reset"
 //   {{app_name}}  — "Expense Track & Settlement"
-const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';    // Account → General → Public Key
-const EJS_SERVICE_ID  = 'service_pph2qsj';    // Email Services → Service ID
-const EJS_TEMPLATE_ID = 'template_rq1ptiv';   // Email Templates → Template ID
+const EJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';    // Account → General → Public Key
+const EJS_SERVICE_ID  = 'YOUR_SERVICE_ID';    // Email Services → Service ID
+const EJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';   // Email Templates → Template ID
 
 // ============ HELPERS ============
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
@@ -181,7 +193,7 @@ let syncing     = false;
 let lastSync    = '';
 let modal       = null;
 let editId      = null;
-let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={};
+let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='';
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
@@ -192,6 +204,11 @@ let authLoading = false;
 let adminSubTab = 'users';
 let allUsers    = [];
 let allTrips    = [];
+
+// --- DASHBOARD ---
+let dashData      = [];   // [{id, name, date, meta, friends, expenses, settlements}]
+let dashLoading   = false;
+let dashLoaded    = false;
 
 // OTP flow state (persisted so page refresh doesn't lose it)
 var _otpState = JSON.parse(localStorage.getItem('px-otp') || 'null');
@@ -563,6 +580,42 @@ async function loadTrips(){
   render();
 }
 
+async function loadDashboard(){
+  dashLoading=true; dashLoaded=false; render();
+  try{
+    // Re-use trips list if already loaded, else fetch
+    var list=trips.length?trips:[];
+    if(!list.length){
+      var r=await fetch(FB+'.json?shallow=true');
+      if(r.ok){
+        var d=await r.json();
+        if(d){
+          var keys=Object.keys(d);
+          var metas=await Promise.all(keys.map(async k=>{
+            try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||'',meta:m||{}};}
+            catch(e){return{id:k,name:k,date:'',meta:{}};}
+          }));
+          list=metas.filter(t=>canSeeTrip(t.meta));
+        }
+      }
+    }
+    // Fetch full data for each visible trip
+    dashData=await Promise.all(list.map(async t=>{
+      try{
+        var full=await fbGet(t.id);
+        return{
+          id:t.id, name:t.name, date:t.date, meta:t.meta,
+          friends:  (full&&full.friends)   ||[],
+          expenses: (full&&full.expenses)  ||[],
+          settlements:(full&&full.settlements)||[]
+        };
+      }catch(e){return{id:t.id,name:t.name,date:t.date,meta:t.meta,friends:[],expenses:[],settlements:[]};}
+    }));
+    dashData.sort((a,b)=>b.date.localeCompare(a.date));
+  }catch(e){dashData=[];}
+  dashLoading=false; dashLoaded=true; render();
+}
+
 function updateSync(){
   var el=document.getElementById('sync');
   if(el)el.textContent=syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:'';
@@ -581,26 +634,119 @@ function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
 function upi(n,a){return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax';}
 function ctotal(){return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||0),0);}
 
+// Dashboard calc helpers (work on arbitrary trip data, not global db)
+function tripBalances(t){
+  var b={};
+  t.friends.forEach(f=>b[f.id]=0);
+  t.expenses.forEach(e=>{
+    b[e.paidBy]=(b[e.paidBy]||0)+e.amount;
+    Object.entries(e.splitAmong||{}).forEach(([id,a])=>b[id]=(b[id]||0)-a);
+  });
+  return b;
+}
+function tripSettlementStatus(t){
+  var b=tripBalances(t),debt=[],cred=[];
+  Object.entries(b).forEach(([id,v])=>{
+    if(v<-0.01)debt.push({id,a:-v});
+    else if(v>0.01)cred.push({id,a:v});
+  });
+  var i=0,j=0,pending=0;
+  while(i<debt.length&&j<cred.length){
+    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
+    if(!t.settlements.includes(key)) pending+=amt;
+    d.a-=amt;c.a-=amt;
+    if(d.a<0.01)i++;if(c.a<0.01)j++;
+  }
+  return pending;
+}
+
 // ============ EXPENSE ACTIONS ============
 async function doAddFriend(){var n=(document.getElementById('if')||{value:''}).value.trim();if(!n){toast('Enter a name!');return;}db.friends.push({id:'f'+Date.now(),name:n});fname='';modal=null;render();await saveTrip();}
-async function doAddExpense(){var desc=(document.getElementById('ied')||{value:''}).value.trim();var amt=parseFloat((document.getElementById('iea')||{value:''}).value);var payer=(document.getElementById('iep')||{value:''}).value;if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}var split={};if(esplit==='equal'){var per=amt/db.friends.length;db.friends.forEach(f=>split[f.id]=per);}else{db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});var tot=ctotal();if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);}if(editId){var idx=db.expenses.findIndex(e=>e.id===editId);if(idx!==-1)db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split};}else{db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:new Date().toISOString()});}modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};render();await saveTrip();}
+async function doAddExpense(){
+  var desc=(document.getElementById('ied')||{value:''}).value.trim();
+  var amt=parseFloat((document.getElementById('iea')||{value:''}).value);
+  var payer=(document.getElementById('iep')||{value:''}).value;
+  var ed=(document.getElementById('iedate')||{value:''}).value;
+  var et=(document.getElementById('ietime')||{value:''}).value;
+  if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
+  var split={};
+  if(esplit==='equal'){
+    var per=amt/db.friends.length;
+    db.friends.forEach(f=>split[f.id]=per);
+  }else{
+    db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
+    var tot=ctotal();
+    if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}
+    db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);
+  }
+  // Combine date + time into ISO string; fall back to now
+  var expDatetime = (ed&&et) ? new Date(ed+'T'+et).toISOString()
+                  : ed       ? new Date(ed+'T00:00').toISOString()
+                  : new Date().toISOString();
+  if(editId){
+    var idx=db.expenses.findIndex(e=>e.id===editId);
+    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime};
+  }else{
+    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime});
+  }
+  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';
+  render();await saveTrip();
+}
 async function doDelExpense(id){
   warnConfirm('Delete this expense? This cannot be undone.', async function(){
     db.expenses=db.expenses.filter(e=>e.id!==id);render();await saveTrip();
   }, 'Delete');
 }
-function doEditExpense(id){var e=db.expenses.find(x=>x.id===id);if(!e)return;editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;var vals=Object.values(e.splitAmong);var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);esplit=eq?'equal':'custom';csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));modal='expense';render();setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);}
+function doEditExpense(id){
+  var e=db.expenses.find(x=>x.id===id);if(!e)return;
+  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;
+  // restore date/time from saved ISO string
+  if(e.date){
+    var d=new Date(e.date);
+    edate=d.toISOString().split('T')[0];
+    etime=d.toTimeString().slice(0,5);
+  }else{ edate=''; etime=''; }
+  var vals=Object.values(e.splitAmong);
+  var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);
+  esplit=eq?'equal':'custom';
+  csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));
+  modal='expense';render();
+  setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
+}
 async function doMarkPaid(key,paid){if(paid)db.settlements.push(key);else db.settlements=db.settlements.filter(s=>s!==key);render();await saveTrip();}
 async function doReset(){
   warnConfirm('Delete <strong>all expenses and friends</strong> from this trip? Trip settings will be kept.', async function(){
     db={friends:[],expenses:[],settlements:[],meta:db.meta};render();await saveTrip();
   }, 'Reset All');
 }
-async function doCreateTrip(){var n=(document.getElementById('itn')||{value:''}).value.trim();var dt=(document.getElementById('itd')||{value:''}).value;if(!n){toast('Enter a trip name!');return;}tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');localStorage.setItem('px-trip',tripId);db={friends:[],expenses:[],settlements:[],meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}};modal=null;render();await fbSet(tripId+'/meta',db.meta);}
+async function doCreateTrip(){
+  var n=(document.getElementById('itn')||{value:''}).value.trim();
+  var dt=(document.getElementById('itd')||{value:''}).value;
+  if(!n){toast('Enter a trip name!');return;}
+  tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
+  localStorage.setItem('px-trip',tripId);
+  var creatorFriend={id:'f'+Date.now(), name:currentUser.displayName};
+  db={
+    friends:[creatorFriend],
+    expenses:[],
+    settlements:[],
+    meta:{name:n,date:dt,created:new Date().toISOString(),createdBy:currentUser?currentUser.email:'',members:[]}
+  };
+  modal=null;render();
+  await fbSet(tripId, db);
+}
 function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;render();loadTrip();}
 function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];render();loadTrips();}
 function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
-function doSetSplit(t){db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});var ded=document.getElementById('ied');if(ded)edesc=ded.value;var dea=document.getElementById('iea');if(dea)eamt=dea.value;var dep=document.getElementById('iep');if(dep)epayer=dep.value;esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);}
+function doSetSplit(t){
+  db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
+  var ded=document.getElementById('ied');if(ded)edesc=ded.value;
+  var dea=document.getElementById('iea');if(dea)eamt=dea.value;
+  var dep=document.getElementById('iep');if(dep)epayer=dep.value;
+  var ded2=document.getElementById('iedate');if(ded2)edate=ded2.value;
+  var det=document.getElementById('ietime');if(det)etime=det.value;
+  esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);
+}
 
 function copyText(text){
   navigator.clipboard.writeText(text).then(()=>toast('📋 Copied!')).catch(()=>{
@@ -632,6 +778,7 @@ function render(){
   if(tab==='expenses')    body=tabExp(bal);
   else if(tab==='friends')body=tabFr(bal);
   else if(tab==='settle') body=tabSet(bal,sets);
+  else if(tab==='dashboard') body=tabDashboard();
   else if(tab==='admin'&&isAdmin) body=tabAdmin();
 
   var adminTabHtml=isAdmin?`<button class="tab admin-tab ${tab==='admin'?'on':''}" onclick="tab='admin';if(allUsers.length===0)loadAdminData();render()">👑 Admin</button>`:'';
@@ -660,6 +807,7 @@ function render(){
     <button class="tab ${tab==='expenses'?'on':''}" onclick="tab='expenses';render()">Expenses</button>
     <button class="tab ${tab==='friends'?'on':''}" onclick="tab='friends';render()">Friends (${db.friends.length})</button>
     <button class="tab ${tab==='settle'?'on':''}" onclick="tab='settle';render()">Settle Up</button>
+    <button class="tab ${tab==='dashboard'?'on':''}" onclick="tab='dashboard';if(!dashLoaded&&!dashLoading)loadDashboard();render()">📊 Summary</button>
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
@@ -806,7 +954,7 @@ function tabExp(bal){
   var h=`<div class="shd"><h2>All Expenses</h2>
     <div style="display:flex;gap:6px">
       ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this trip">🗑️ Trip</button>`:''}
-      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
+      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
     </div>
   </div>`;
   if(!db.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn primary" onclick="tab='friends';render()">Go to Friends</button></div>`;
@@ -818,11 +966,15 @@ function tabExp(bal){
   </div>`;
   h+=db.expenses.map(e=>{
     var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
+    var expDt=e.date?new Date(e.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
     return `<div class="card">
       <div class="row">
         <div style="flex:1;min-width:0">
           <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}</div>
-          <div style="font-size:11px;color:#6b7280;margin-top:2px">Paid by <strong style="color:#d97706">${gname(e.paidBy)}</strong></div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px">
+            Paid by <strong style="color:#d97706">${gname(e.paidBy)}</strong>
+            ${expDt?`<span style="color:#9ca3af"> · 🕐 ${expDt}</span>`:''}
+          </div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
           <div style="font-size:18px;font-weight:900;color:#d97706">₹${Math.round(e.amount)}</div>
@@ -879,6 +1031,94 @@ function tabSet(bal,sets){
     </div>
   </div>`).join('');
   return h+`</div>`;
+}
+
+// ============ DASHBOARD TAB ============
+function tabDashboard(){
+  if(dashLoading) return `<div class="empty"><p>⏳ Loading your trips...</p></div>`;
+  if(!dashLoaded) return `<div class="empty"><p>📊 Loading summary...</p></div>`;
+  if(!dashData.length) return `<div class="empty"><p>No trips found. Create one to get started!</p></div>`;
+
+  // Grand totals across all trips
+  var grandTotal=0, grandExp=0, grandPending=0, grandTrips=dashData.length;
+  dashData.forEach(t=>{
+    var tot=t.expenses.reduce((s,e)=>s+e.amount,0);
+    grandTotal+=tot; grandExp+=t.expenses.length;
+    grandPending+=tripSettlementStatus(t);
+  });
+
+  var h=`
+  <div class="dash-summary-bar">
+    <div style="font-size:11px;font-weight:700;opacity:0.8;text-transform:uppercase;margin-bottom:8px">
+      📊 Your Overall Summary
+    </div>
+    <div class="dash-grid">
+      <div class="dash-stat"><div class="n">${grandTrips}</div><div class="l">Trips</div></div>
+      <div class="dash-stat"><div class="n">${grandExp}</div><div class="l">Expenses</div></div>
+      <div class="dash-stat"><div class="n">₹${Math.round(grandTotal).toLocaleString()}</div><div class="l">Total Spent</div></div>
+      <div class="dash-stat"><div class="n" style="color:${grandPending>0?'#fbbf24':'#86efac'}">₹${Math.round(grandPending).toLocaleString()}</div><div class="l">Pending</div></div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:800;color:#6b7280;text-transform:uppercase">Trip Breakdown</div>
+    <button class="btn secondary sm" onclick="dashLoaded=false;loadDashboard()">🔄 Refresh</button>
+  </div>`;
+
+  dashData.forEach(t=>{
+    var total=t.expenses.reduce((s,e)=>s+e.amount,0);
+    var pending=tripSettlementStatus(t);
+    var settled=pending<0.01;
+    var bal=tripBalances(t);
+    var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+    var isActive=t.id===tripId;
+    // Find the current user's friend entry by matching display name
+    var myFriend=t.friends.find(f=>f.name===currentUser.displayName);
+    var myBal=myFriend?(bal[myFriend.id]||0):null;
+    var myBalHtml='';
+    if(myFriend){
+      if(myBal>0.01) myBalHtml=`<span style="color:#16a34a;font-weight:700;font-size:12px">You get back ₹${Math.round(myBal)}</span>`;
+      else if(myBal<-0.01) myBalHtml=`<span style="color:#ef4444;font-weight:700;font-size:12px">You owe ₹${Math.round(-myBal)}</span>`;
+      else myBalHtml=`<span style="color:#16a34a;font-weight:700;font-size:12px">✓ You're settled</span>`;
+    }
+
+    // Top 3 expenses
+    var topExp=[...t.expenses].sort((a,b)=>b.amount-a.amount).slice(0,3);
+    var topHtml=topExp.map(e=>{
+      var dt=e.date?new Date(e.date).toLocaleDateString('en-IN',{day:'numeric',month:'short'}):'';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:12px">
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;margin-right:8px;color:#374151">${e.description}</div>
+        <div style="flex-shrink:0;color:#6b7280">${dt}</div>
+        <div style="flex-shrink:0;font-weight:700;color:#d97706;margin-left:8px">₹${Math.round(e.amount)}</div>
+      </div>`;
+    }).join('');
+
+    h+=`<div class="dash-card ${isActive?'active-trip':''}" onclick="doSelectTrip('${t.id}');tab='expenses';render()">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <div style="font-weight:900;font-size:15px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${isActive?'📍 ':''}${t.name}
+          </div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px">${dateStr?'📅 '+dateStr:''} · ${t.friends.length} people · ${t.expenses.length} expenses</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:18px;font-weight:900;color:#d97706">₹${Math.round(total).toLocaleString()}</div>
+          <span class="dash-pill ${settled?'dash-settled':'dash-pending'}">${settled?'✓ Settled':'⏳ Pending'}</span>
+        </div>
+      </div>
+      ${myBalHtml?`<div style="margin-bottom:10px">${myBalHtml}</div>`:''}
+      ${topExp.length?`
+      <div style="border-top:2px solid #f3f4f6;padding-top:8px">
+        <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:4px">Top Expenses</div>
+        ${topHtml}
+        ${t.expenses.length>3?`<div style="font-size:11px;color:#9ca3af;margin-top:4px">+${t.expenses.length-3} more</div>`:''}
+      </div>`:''}
+      ${!settled&&pending>0?`<div style="margin-top:10px;background:#fef2f2;border-radius:8px;padding:8px 10px;font-size:12px;color:#b91c1c;font-weight:600">
+        💳 ₹${Math.round(pending)} pending settlement
+      </div>`:''}
+    </div>`;
+  });
+
+  return h;
 }
 
 // ============ ADMIN TAB ============
@@ -1009,6 +1249,10 @@ function mFriend(){
 function mExpense(){
   var opts=db.friends.map(f=>`<option value="${f.id}" ${epayer===f.id?'selected':''}>${f.name}</option>`).join('');
   var isEdit=!!editId;
+  // Default date = today, time = now (only for new expenses)
+  var nowDate=new Date();
+  var defDate=edate||nowDate.toISOString().split('T')[0];
+  var defTime=etime||nowDate.toTimeString().slice(0,5);
   var cbox=esplit==='custom'?`
     <div class="cbox">
       <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:7px">AMOUNT PER PERSON:</div>
@@ -1031,6 +1275,16 @@ function mExpense(){
       <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()">
       <span class="lbl">Who Paid?</span>
       <select id="iep" class="f"><option value="">Select person</option>${opts}</select>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <span class="lbl">Date</span>
+          <input id="iedate" class="f" type="date" value="${defDate}">
+        </div>
+        <div style="flex:1">
+          <span class="lbl">Time</span>
+          <input id="ietime" class="f" type="time" value="${defTime}">
+        </div>
+      </div>
       <span class="lbl">Split Type</span>
       <div class="stgl">
         <button class="btn sm ${esplit==='equal'?'primary':'secondary'}" onclick="doSetSplit('equal')">⚖️ Equal</button>
