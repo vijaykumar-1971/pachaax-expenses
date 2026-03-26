@@ -151,9 +151,9 @@ const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 //   {{otp_code}}  — the 6-digit OTP
 //   {{purpose}}   — "Email Verification" or "Password Reset"
 //   {{app_name}}  — "Expense Track & Settlement"
-const EJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';    // Account → General → Public Key
-const EJS_SERVICE_ID  = 'YOUR_SERVICE_ID';    // Email Services → Service ID
-const EJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';   // Email Templates → Template ID
+const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';    // Account → General → Public Key
+const EJS_SERVICE_ID  = 'service_pph2qsj';    // Email Services → Service ID
+const EJS_TEMPLATE_ID = 'template_rq1ptiv';   // Email Templates → Template ID
 
 // ============ HELPERS ============
 function eKey(email){ return email.toLowerCase().replace(/\./g,'__'); }
@@ -185,10 +185,11 @@ async function sendOtpEmail(toEmail, toName, otp, purpose){
       },
       { publicKey: EJS_PUBLIC_KEY }
     );
-    return true;
+    return { ok: true };
   }catch(e){
+    var msg = (e && (e.text || e.message || JSON.stringify(e))) || 'Unknown error';
     console.error('EmailJS send error:', e);
-    return false;
+    return { ok: false, msg };
   }
 }
 
@@ -293,11 +294,11 @@ async function doResendOtp(){
   _otpState.otp=otp; _otpState.sentAt=Date.now();
   saveOtpState(_otpState);
   var purpose=_otpState.purpose==='verify'?'Email Verification':'Password Reset';
-  var sent=await sendOtpEmail(_otpState.email, _otpState.displayName||_otpState.email, otp, purpose);
-  if(sent){
+  var result=await sendOtpEmail(_otpState.email, _otpState.displayName||_otpState.email, otp, purpose);
+  if(result.ok){
     toast('📧 OTP resent to '+_otpState.email);
   } else {
-    toast('⚠️ Failed to send email. Please try again.');
+    authErr='Resend failed: '+result.msg; render();
   }
   startResendTimer();
 }
@@ -347,13 +348,14 @@ async function doRegister(){
       banned:false, verified:false, createdAt:new Date().toISOString()
     });
     saveOtpState({ email:u, displayName:dn, role:isFirst?'admin':'user', otp, sentAt:Date.now(), purpose:'verify' });
-    // Send OTP — always attempt regardless of _ejsReady flag
-    var sent=await sendOtpEmail(u, dn, otp, 'Email Verification');
+    var result=await sendOtpEmail(u, dn, otp, 'Email Verification');
     authLoading=false;
-    if(!sent){
-      // Clean up — delete the saved record so user can try again
+    if(!result.ok){
+      // Delete the unverified record so the user can try registering again
+      await faDel(eKey(u));
       clearOtpState();
-      authErr='Failed to send verification email. Please check your EmailJS configuration and try again.';
+      authErr='Could not send verification email: ' + result.msg
+        + '. Check that your EmailJS Service ID, Template ID, and Public Key are correct.';
       render(); return;
     }
     authMode='otp-verify'; render();
@@ -394,11 +396,11 @@ async function doForgotPassword(){
     if(rec.banned){ authErr='Your account has been suspended.'; authLoading=false; render(); return; }
     var otp=genOtp();
     saveOtpState({ email:u, displayName:rec.displayName||u, otp, sentAt:Date.now(), purpose:'reset' });
-    var sent=await sendOtpEmail(u, rec.displayName||u, otp, 'Password Reset');
+    var result=await sendOtpEmail(u, rec.displayName||u, otp, 'Password Reset');
     authLoading=false;
-    if(!sent){
+    if(!result.ok){
       clearOtpState();
-      authErr='Failed to send reset email. Please try again.';
+      authErr='Could not send reset email: '+result.msg;
       render(); return;
     }
     authMode='otp-reset'; render();
