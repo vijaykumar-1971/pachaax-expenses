@@ -163,25 +163,33 @@ function initials(s){ return (s||'?')[0].toUpperCase(); }
 function genOtp(){ return String(Math.floor(100000+Math.random()*900000)); }
 
 // ============ EMAILJS ============
-var _ejsReady = false;
 function initEJS(){
-  if(EJS_PUBLIC_KEY==='YOUR_PUBLIC_KEY') return;
-  try{ emailjs.init({publicKey:EJS_PUBLIC_KEY}); _ejsReady=true; }
-  catch(e){ console.warn('EmailJS init failed',e); }
+  try{
+    if(EJS_PUBLIC_KEY && EJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY'){
+      emailjs.init({ publicKey: EJS_PUBLIC_KEY });
+    }
+  }catch(e){ console.warn('EmailJS init failed', e); }
 }
 
 async function sendOtpEmail(toEmail, toName, otp, purpose){
-  if(!_ejsReady){ console.warn('EmailJS not configured'); return false; }
   try{
-    await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, {
-      to_email: toEmail,
-      to_name:  toName,
-      otp_code: otp,
-      purpose:  purpose,
-      app_name: 'Expense Track & Settlement'
-    });
+    await emailjs.send(
+      EJS_SERVICE_ID,
+      EJS_TEMPLATE_ID,
+      {
+        to_email: toEmail,
+        to_name:  toName,
+        otp_code: otp,
+        purpose:  purpose,
+        app_name: 'Expense Track & Settlement'
+      },
+      { publicKey: EJS_PUBLIC_KEY }
+    );
     return true;
-  }catch(e){ console.error('EmailJS error',e); return false; }
+  }catch(e){
+    console.error('EmailJS send error:', e);
+    return false;
+  }
 }
 
 // ============ STATE ============
@@ -285,30 +293,13 @@ async function doResendOtp(){
   _otpState.otp=otp; _otpState.sentAt=Date.now();
   saveOtpState(_otpState);
   var purpose=_otpState.purpose==='verify'?'Email Verification':'Password Reset';
-  var sent=await sendOtpEmail(_otpState.email,_otpState.displayName||_otpState.email,otp,purpose);
-  startResendTimer();
+  var sent=await sendOtpEmail(_otpState.email, _otpState.displayName||_otpState.email, otp, purpose);
   if(sent){
-    toast('📧 OTP resent!');
+    toast('📧 OTP resent to '+_otpState.email);
   } else {
-    var d=document.getElementById('warn-dialog');
-    if(d){
-      d.style.display='block';
-      d.innerHTML=`<div class="warn-overlay">
-        <div class="warn-box">
-          <h4>📧 Email Send Failed</h4>
-          <p>Could not send email. Use this OTP directly:</p>
-          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
-            <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
-            <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
-          </div>
-          <div class="warn-btns">
-            <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
-            <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
-          </div>
-        </div>
-      </div>`;
-    }
+    toast('⚠️ Failed to send email. Please try again.');
   }
+  startResendTimer();
 }
 
 // ============ AUTH ACTIONS ============
@@ -350,50 +341,24 @@ async function doRegister(){
     var isFirst=!allD||Object.keys(allD).length===0;
     var h=await hashPwd(p);
     var otp=genOtp();
-    // Store user as unverified — will be marked verified after OTP
+    // Save user as unverified — verified=true only after OTP confirmed
     await faSet(eKey(u),{
       passwordHash:h, role:isFirst?'admin':'user', displayName:dn,
       banned:false, verified:false, createdAt:new Date().toISOString()
     });
-    authLoading=false;
-
-    // If EmailJS is not configured, auto-verify everyone and log them in directly
-    if(!_ejsReady){
-      var rec2=await faGet(eKey(u)); rec2.verified=true; await faSet(eKey(u),rec2);
-      clearOtpState();
-      currentUser={email:u, role:isFirst?'admin':'user', displayName:dn};
-      localStorage.setItem('px-user',JSON.stringify(currentUser));
-      toast(isFirst?'👑 Welcome Admin '+dn+'!':'🎉 Welcome '+dn+'! Account created.');
-      authErr=''; render(); loadTrips(); return;
-    }
-
-    // EmailJS is configured — send OTP email
     saveOtpState({ email:u, displayName:dn, role:isFirst?'admin':'user', otp, sentAt:Date.now(), purpose:'verify' });
+    // Send OTP — always attempt regardless of _ejsReady flag
     var sent=await sendOtpEmail(u, dn, otp, 'Email Verification');
+    authLoading=false;
+    if(!sent){
+      // Clean up — delete the saved record so user can try again
+      clearOtpState();
+      authErr='Failed to send verification email. Please check your EmailJS configuration and try again.';
+      render(); return;
+    }
     authMode='otp-verify'; render();
     startResendTimer();
-    if(!sent){
-      // Email send failed even though configured — show OTP on screen
-      authErr='';
-      var d=document.getElementById('warn-dialog');
-      if(d){
-        d.style.display='block';
-        d.innerHTML=`<div class="warn-overlay">
-          <div class="warn-box">
-            <h4>📧 Email Send Failed</h4>
-            <p>Could not send OTP to <strong>${u}</strong>. Check your EmailJS config.<br><br>Use this OTP to verify manually:</p>
-            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
-              <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
-              <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
-            </div>
-            <div class="warn-btns">
-              <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
-              <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
-            </div>
-          </div>
-        </div>`;
-      }
-    }
+    toast('📧 OTP sent to '+u);
   }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
 }
 
@@ -431,28 +396,14 @@ async function doForgotPassword(){
     saveOtpState({ email:u, displayName:rec.displayName||u, otp, sentAt:Date.now(), purpose:'reset' });
     var sent=await sendOtpEmail(u, rec.displayName||u, otp, 'Password Reset');
     authLoading=false;
+    if(!sent){
+      clearOtpState();
+      authErr='Failed to send reset email. Please try again.';
+      render(); return;
+    }
     authMode='otp-reset'; render();
     startResendTimer();
-    if(!sent){
-      var d=document.getElementById('warn-dialog');
-      if(d){
-        d.style.display='block';
-        d.innerHTML=`<div class="warn-overlay">
-          <div class="warn-box">
-            <h4>📧 Email Send Failed</h4>
-            <p>Could not send OTP to <strong>${u}</strong>. Check your EmailJS config.<br><br>Use this OTP to reset your password:</p>
-            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
-              <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
-              <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
-            </div>
-            <div class="warn-btns">
-              <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
-              <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
-            </div>
-          </div>
-        </div>`;
-      }
-    }
+    toast('📧 OTP sent to '+u);
   }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
 
