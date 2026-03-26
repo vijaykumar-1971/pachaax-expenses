@@ -286,8 +286,29 @@ async function doResendOtp(){
   saveOtpState(_otpState);
   var purpose=_otpState.purpose==='verify'?'Email Verification':'Password Reset';
   var sent=await sendOtpEmail(_otpState.email,_otpState.displayName||_otpState.email,otp,purpose);
-  toast(sent?'📧 OTP resent!':'⚠️ Could not send email. Check EmailJS config.');
   startResendTimer();
+  if(sent){
+    toast('📧 OTP resent!');
+  } else {
+    var d=document.getElementById('warn-dialog');
+    if(d){
+      d.style.display='block';
+      d.innerHTML=`<div class="warn-overlay">
+        <div class="warn-box">
+          <h4>📧 Email Send Failed</h4>
+          <p>Could not send email. Use this OTP directly:</p>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
+            <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
+            <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
+          </div>
+          <div class="warn-btns">
+            <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
+            <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
+          </div>
+        </div>
+      </div>`;
+    }
+  }
 }
 
 // ============ AUTH ACTIONS ============
@@ -334,22 +355,45 @@ async function doRegister(){
       passwordHash:h, role:isFirst?'admin':'user', displayName:dn,
       banned:false, verified:false, createdAt:new Date().toISOString()
     });
-    saveOtpState({ email:u, displayName:dn, role:isFirst?'admin':'user', otp, sentAt:Date.now(), purpose:'verify' });
-    var sent=await sendOtpEmail(u, dn, otp, 'Email Verification');
     authLoading=false;
-    if(isFirst && !_ejsReady){
-      // Admin + no email configured: auto-verify for first user so they're not locked out
-      var rec=await faGet(eKey(u)); rec.verified=true; await faSet(eKey(u),rec);
+
+    // If EmailJS is not configured, auto-verify everyone and log them in directly
+    if(!_ejsReady){
+      var rec2=await faGet(eKey(u)); rec2.verified=true; await faSet(eKey(u),rec2);
       clearOtpState();
-      currentUser={email:u,role:'admin',displayName:dn};
+      currentUser={email:u, role:isFirst?'admin':'user', displayName:dn};
       localStorage.setItem('px-user',JSON.stringify(currentUser));
-      toast('👑 Welcome Admin '+dn+'!');
+      toast(isFirst?'👑 Welcome Admin '+dn+'!':'🎉 Welcome '+dn+'! Account created.');
       authErr=''; render(); loadTrips(); return;
     }
+
+    // EmailJS is configured — send OTP email
+    saveOtpState({ email:u, displayName:dn, role:isFirst?'admin':'user', otp, sentAt:Date.now(), purpose:'verify' });
+    var sent=await sendOtpEmail(u, dn, otp, 'Email Verification');
     authMode='otp-verify'; render();
     startResendTimer();
-    if(!sent) toast('⚠️ Email send failed — check EmailJS config. Enter OTP shown in console for now.');
-    if(!sent) console.log('DEV OTP:',otp);
+    if(!sent){
+      // Email send failed even though configured — show OTP on screen
+      authErr='';
+      var d=document.getElementById('warn-dialog');
+      if(d){
+        d.style.display='block';
+        d.innerHTML=`<div class="warn-overlay">
+          <div class="warn-box">
+            <h4>📧 Email Send Failed</h4>
+            <p>Could not send OTP to <strong>${u}</strong>. Check your EmailJS config.<br><br>Use this OTP to verify manually:</p>
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
+              <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
+              <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
+            </div>
+            <div class="warn-btns">
+              <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
+              <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
   }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
 }
 
@@ -389,7 +433,26 @@ async function doForgotPassword(){
     authLoading=false;
     authMode='otp-reset'; render();
     startResendTimer();
-    if(!sent){ toast('⚠️ Email send failed — check EmailJS config.'); console.log('DEV OTP:',otp); }
+    if(!sent){
+      var d=document.getElementById('warn-dialog');
+      if(d){
+        d.style.display='block';
+        d.innerHTML=`<div class="warn-overlay">
+          <div class="warn-box">
+            <h4>📧 Email Send Failed</h4>
+            <p>Could not send OTP to <strong>${u}</strong>. Check your EmailJS config.<br><br>Use this OTP to reset your password:</p>
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;text-align:center;margin-bottom:14px">
+              <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:#15803d">${otp}</div>
+              <div style="font-size:11px;color:#15803d;margin-top:4px">Valid for 10 minutes</div>
+            </div>
+            <div class="warn-btns">
+              <button style="background:#16a34a;color:white" onclick="_warnClose();navigator.clipboard&&navigator.clipboard.writeText('${otp}');toast('📋 OTP copied!')">📋 Copy OTP</button>
+              <button style="background:#e5e7eb;color:#374151" onclick="_warnClose()">Close</button>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
   }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
 
