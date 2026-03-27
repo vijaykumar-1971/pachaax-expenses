@@ -326,6 +326,7 @@ async function doLogin(){
     localStorage.setItem('px-user',JSON.stringify(currentUser));
     authErr=''; authLoading=false;
     toast('👋 Welcome back, '+currentUser.displayName+'!');
+    loadCategories();
     render(); loadTrips();
   }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
 }
@@ -386,6 +387,7 @@ async function doVerifyOtp(){
     clearOtpState(); if(_otpTimer) clearInterval(_otpTimer);
     authErr=''; authLoading=false;
     toast('✅ Email verified! Welcome, '+currentUser.displayName+'!');
+    loadCategories();
     render(); loadTrips();
   }catch(e){ authErr='Connection error. Try again.'; authLoading=false; render(); }
 }
@@ -684,6 +686,23 @@ function tripSettlementStatus(t){
 
 // ============ EXPENSE ACTIONS ============
 async function doAddFriend(){var n=(document.getElementById('if')||{value:''}).value.trim();if(!n){toast('Enter a name!');return;}db.friends.push({id:'f'+Date.now(),name:n});fname='';modal=null;render();await saveTrip();}
+
+async function doDelFriend(id){
+  var f=db.friends.find(x=>x.id===id);
+  if(!f)return;
+  // Protect creator — the friend whose name matches the trip owner's display name
+  var creatorName=currentUser.displayName;
+  if(f.name===creatorName&&(db.meta&&db.meta.createdBy)===currentUser.email){
+    toast('⚠️ Cannot remove yourself as the story creator.');return;
+  }
+  // Check if friend has any expenses
+  var hasExp=db.expenses.some(e=>e.paidBy===id||Object.keys(e.splitAmong||{}).includes(id));
+  if(hasExp){toast('⚠️ '+f.name+' has expenses. Remove or reassign them first.');return;}
+  warnConfirm('Remove <strong>'+f.name+'</strong> from this story?', async function(){
+    db.friends=db.friends.filter(x=>x.id!==id);
+    render();await saveTrip();
+  },'Remove',true);
+}
 async function doAddExpense(){
   var desc=(document.getElementById('ied')||{value:''}).value.trim();
   var amt=parseFloat((document.getElementById('iea')||{value:''}).value);
@@ -731,9 +750,10 @@ function doEditExpense(id){
 }
 async function doMarkPaid(key,paid){if(paid)db.settlements.push(key);else db.settlements=db.settlements.filter(s=>s!==key);render();await saveTrip();}
 async function doReset(){
-  warnConfirm('Delete <strong>all expenses and friends</strong> from this story? Story settings will be kept.', async function(){
-    db={friends:[],expenses:[],settlements:[],meta:db.meta};render();await saveTrip();
-  }, 'Reset All');
+  warnConfirm('Delete <strong>all expenses</strong> from this story? Friends will be kept.', async function(){
+    // Keep friends, only wipe expenses and settlements
+    db={friends:db.friends,expenses:[],settlements:[],meta:db.meta};render();await saveTrip();
+  }, 'Reset Expenses');
 }
 async function doCreateTrip(){
   var n=(document.getElementById('itn')||{value:''}).value.trim();
@@ -766,26 +786,33 @@ function doSetSplit(t){
   esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);
 }
 
-// ============ CATEGORY MANAGEMENT (admin) ============
-function getCategories(){
-  // Stored globally in Firebase under trips/__categories, loaded into db.meta.categories
-  return (db.meta&&db.meta.categories)||[];
+// ============ CATEGORY MANAGEMENT (app-level, admin only) ============
+const FB_CATS = 'https://pachaax-expenses-default-rtdb.firebaseio.com/app_categories';
+var appCategories = [];
+
+async function loadCategories(){
+  try{
+    var r=await fetch(FB_CATS+'.json');
+    var d=r.ok?await r.json():null;
+    appCategories=Array.isArray(d)?d:(d?Object.values(d):[]);
+  }catch(e){ appCategories=[]; }
 }
+
+function getCategories(){ return appCategories; }
+
 async function doAddCategory(){
   var v=(document.getElementById('new-cat')||{value:''}).value.trim();
   if(!v){toast('Enter a category name');return;}
-  var cats=getCategories();
-  if(cats.includes(v)){toast('Already exists');return;}
-  cats.push(v);
-  db.meta.categories=cats;
-  await fbSet(tripId+'/meta',db.meta);
-  document.getElementById('new-cat').value='';
+  if(appCategories.includes(v)){toast('Already exists');return;}
+  appCategories.push(v);
+  await fetch(FB_CATS+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(appCategories)});
+  var el=document.getElementById('new-cat'); if(el)el.value='';
   toast('✅ Category added'); render();
 }
+
 async function doDelCategory(cat){
-  var cats=getCategories().filter(c=>c!==cat);
-  db.meta.categories=cats;
-  await fbSet(tripId+'/meta',db.meta);
+  appCategories=appCategories.filter(c=>c!==cat);
+  await fetch(FB_CATS+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(appCategories)});
   toast('🗑️ Category removed'); render();
 }
 
@@ -1050,6 +1077,8 @@ function tabExp(bal){
 }
 
 function tabFr(bal){
+  var creatorName=currentUser.displayName;
+  var isOwnerView=(db.meta&&db.meta.createdBy)===currentUser.email||currentUser.role==='admin';
   var h=`<div class="shd"><h2>Your Group</h2>
     <button class="btn primary sm" onclick="fname='';modal='friend';render();setTimeout(()=>{var e=document.getElementById('if');if(e)e.focus();},100)">+ Add</button>
   </div>`;
@@ -1057,12 +1086,21 @@ function tabFr(bal){
   h+=db.friends.map(f=>{
     var b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
     var txt=b>0.01?`Gets back ₹${Math.round(b)}`:b<-0.01?`Owes ₹${Math.round(-b)}`:'All settled ✓';
+    var isCreator=f.name===creatorName&&(db.meta&&db.meta.createdBy)===currentUser.email;
+    var hasExp=db.expenses.some(e=>e.paidBy===f.id||Object.keys(e.splitAmong||{}).includes(f.id));
     return `<div class="fc">
       <div class="av">${initials(f.name)}</div>
-      <div><div style="font-weight:900;font-size:15px">${f.name}</div><div class="${cls}">${txt}</div></div>
+      <div style="flex:1"><div style="font-weight:900;font-size:15px">${f.name}${isCreator?` <span style="font-size:10px;color:#d97706;font-weight:700">👑 You</span>`:''}</div><div class="${cls}">${txt}</div></div>
+      ${isCreator
+        ? `<span style="font-size:18px" title="Story creator — cannot be removed">🔒</span>`
+        : `<button class="dbtn" onclick="doDelFriend('${f.id}')" title="${hasExp?'Has expenses — remove expenses first':'Remove friend'}" style="font-size:18px;padding:4px 6px">✕</button>`
+      }
     </div>`;
   }).join('');
-  h+=`<div style="text-align:center;margin-top:10px"><button class="btn danger sm" onclick="doReset()">🗑️ Reset All Expenses</button></div>`;
+  h+=`<div style="text-align:center;margin-top:12px">
+    <button class="btn danger sm" onclick="doReset()">🗑️ Reset All Expenses</button>
+    <div style="font-size:10px;color:#9ca3af;margin-top:5px">Friends will not be deleted</div>
+  </div>`;
   return h;
 }
 
@@ -1215,7 +1253,7 @@ function tabAdmin(){
   <div style="display:flex;background:white;border-radius:10px;padding:3px;gap:3px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);flex-wrap:wrap">
     <button class="btn sm ${adminSubTab==='users'?'purple':'secondary'}" onclick="adminSubTab='users';render()" style="flex:1;min-width:80px">👥 Users (${allUsers.length})</button>
     <button class="btn sm ${adminSubTab==='trips'?'purple':'secondary'}" onclick="adminSubTab='trips';render()" style="flex:1;min-width:80px">📖 Stories (${allTrips.length})</button>
-    <button class="btn sm ${adminSubTab==='categories'?'purple':'secondary'}" onclick="adminSubTab='categories';render()" style="flex:1;min-width:80px">🏷️ Categories</button>
+    <button class="btn sm ${adminSubTab==='categories'?'purple':'secondary'}" onclick="adminSubTab='categories';loadCategories().then(render)" style="flex:1;min-width:80px">🏷️ Categories</button>
   </div>`;
 
   if(adminSubTab==='users'){
@@ -1309,23 +1347,23 @@ function tabAdmin(){
     var cats=getCategories();
     h+=`<div style="background:white;border-radius:12px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07)">
       <div style="font-size:13px;font-weight:800;color:#374151;margin-bottom:4px">🏷️ Expense Categories</div>
-      <div style="font-size:11px;color:#6b7280;margin-bottom:12px">
-        ${tripId?`Categories for story: <strong>${db.meta&&db.meta.name||tripId}</strong>`:'Open a story first to manage its categories.'}
+      <div style="font-size:11px;color:#6b7280;margin-bottom:14px;line-height:1.5">
+        These categories are available to <strong>all users</strong> across every story when tagging an expense.
       </div>
-      ${tripId?`
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <input id="new-cat" class="f" type="text" placeholder="e.g. Food, Hotel, Transport" style="margin:0;flex:1"
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <input id="new-cat" class="f" type="text" placeholder="e.g. Food, Hotel, Transport, Activities" style="margin:0;flex:1"
           onkeydown="if(event.key==='Enter')doAddCategory()">
         <button class="btn primary sm" onclick="doAddCategory()">+ Add</button>
       </div>
-      ${cats.length?cats.map(c=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px">
-          <span style="background:#ede9fe;color:#6d28d9;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">🏷️ ${c}</span>
-          <span style="flex:1"></span>
-          <button class="btn danger sm" onclick="doDelCategory('${c}')">🗑️</button>
-        </div>`).join('')
-        :`<div class="empty" style="padding:20px"><p>No categories yet. Add your first one above!</p></div>`}
-      `:'<div class="empty" style="padding:20px"><p>📖 Open a story first, then come back here to manage its categories.</p></div>'}
+      ${cats.length
+        ? cats.map(c=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#f9fafb;border-radius:9px;margin-bottom:7px;border:2px solid #e5e7eb">
+            <span style="background:#ede9fe;color:#6d28d9;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">🏷️ ${c}</span>
+            <span style="flex:1"></span>
+            <button class="btn danger sm" onclick="doDelCategory('${c}')">🗑️ Remove</button>
+          </div>`).join('')
+        : `<div class="empty" style="padding:20px"><p>No categories yet.<br>Add your first category above!</p></div>`
+      }
     </div>`;
   }
   return h;
@@ -1444,6 +1482,7 @@ function mAccess(){
   }
   render();
   if(currentUser){
+    loadCategories(); // load app-level categories for all users
     if(tripId) loadTrip(); else loadTrips();
   }
 })();
