@@ -605,37 +605,25 @@ async function loadTrips(){
 }
 
 async function loadDashboard(){
-  dashLoading=true; dashLoaded=false; render();
+  dashLoading=true; dashLoaded=false; dashData=[]; render();
   try{
-    // Always fetch fresh from Firebase — don't rely on the trips array
-    var r=await fetch(FB+'.json?shallow=true');
-    var list=[];
+    // Single request — fetch ALL trip data at once instead of N individual requests
+    var r=await fetch(FB+'.json');
     if(r.ok){
-      var d=await r.json();
-      if(d){
-        var keys=Object.keys(d);
-        var metas=await Promise.all(keys.map(async k=>{
-          try{var m=await fbGet(k+'/meta');return{id:k,name:(m&&m.name)||k,date:(m&&m.date)||'',meta:m||{}};}
-          catch(e){return{id:k,name:k,date:'',meta:{}};}
-        }));
-        list=metas.filter(t=>canSeeTrip(t.meta));
+      var all=await r.json();
+      if(all){
+        var list=Object.entries(all).map(([id,val])=>({
+          id,
+          name: (val&&val.meta&&val.meta.name)||id,
+          date: (val&&val.meta&&val.meta.date)||'',
+          meta: (val&&val.meta)||{},
+          friends:     (val&&val.friends)     ||[],
+          expenses:    (val&&val.expenses)    ||[],
+          settlements: (val&&val.settlements) ||[]
+        })).filter(t=>canSeeTrip(t.meta));
+        dashData=list.sort((a,b)=>b.date.localeCompare(a.date));
       }
     }
-    // Fetch full trip data for each visible trip in parallel
-    dashData=await Promise.all(list.map(async t=>{
-      try{
-        var full=await fbGet(t.id);
-        return{
-          id:t.id, name:t.name, date:t.date, meta:t.meta,
-          friends:    (full&&full.friends)     ||[],
-          expenses:   (full&&full.expenses)    ||[],
-          settlements:(full&&full.settlements) ||[]
-        };
-      }catch(e){
-        return{id:t.id,name:t.name,date:t.date,meta:t.meta,friends:[],expenses:[],settlements:[]};
-      }
-    }));
-    dashData.sort((a,b)=>b.date.localeCompare(a.date));
   }catch(e){dashData=[];}
   dashLoading=false; dashLoaded=true; render();
 }
@@ -769,10 +757,10 @@ async function doCreateTrip(){
     createdBy:currentUser?currentUser.email:'', members:[],
     budget:bg, purpose:pu
   }};
-  modal=null; dashLoaded=false; render();
+  modal=null; dashLoaded=false; tab='friends'; render();
   await fbSet(tripId, db);
 }
-function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;render();loadTrip();}
+function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;tab='friends';render();loadTrip();}
 function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;render();loadTrips();}
 function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
 function doSetSplit(t){
@@ -1134,7 +1122,7 @@ function tabSet(bal,sets){
 
 // ============ DASHBOARD TAB ============
 function tabDashboard(){
-  if(dashLoading) return `<div class="empty"><p>⏳ Loading your trips...</p></div>`;
+  if(dashLoading) return `<div class="empty"><p>⏳ Loading summary…</p><p style="color:#9ca3af;font-size:11px;margin-top:6px">Fetching all stories in one request</p></div>`;
   if(!dashLoaded) return `<div class="empty"><p>📊 Loading summary...</p></div>`;
   if(!dashData.length) return `<div class="empty"><p>No trips found. Create one to get started!</p></div>`;
 
@@ -1191,7 +1179,7 @@ function tabDashboard(){
       </div>`;
     }).join('');
 
-    h+=`<div class="dash-card ${isActive?'active-trip':''}" onclick="doSelectTrip('${t.id}');tab='expenses';render()">
+    h+=`<div class="dash-card ${isActive?'active-trip':''}" onclick="doSelectTrip('${t.id}');render()">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
         <div style="min-width:0">
           <div style="font-weight:900;font-size:15px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
