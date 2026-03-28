@@ -59,6 +59,8 @@ button{cursor:pointer;border:none;font-family:inherit}
 .gbox h3{font-weight:900;font-size:14px;color:#14532d;margin-bottom:10px;text-transform:uppercase}
 .sc{background:white;border-radius:9px;padding:12px;margin-bottom:9px;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
 .sc.paid{background:#f3f4f6;opacity:0.6}
+.pay-entry{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f0fdf4;border-radius:8px;margin-bottom:5px;border:1px solid #86efac;font-size:12px}
+.pay-entry.partial{background:#fefce8;border-color:#fde047}
 .srow{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
 .sbtns{display:flex;gap:7px}
 .foot{position:fixed;bottom:0;left:0;right:0;background:#78350f;color:#fef3c7;padding:7px;text-align:center;font-size:11px;z-index:50}
@@ -641,7 +643,45 @@ setInterval(async()=>{
 
 // ============ CALC ============
 function balances(){var b={};db.friends.forEach(f=>b[f.id]=0);db.expenses.forEach(e=>{b[e.paidBy]=(b[e.paidBy]||0)+e.amount;Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);});return b;}
-function settlements(){var b=balances(),debt=[],cred=[],res=[];Object.entries(b).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});var i=0,j=0;while(i<debt.length&&j<cred.length){var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;res.push({from:d.id,to:c.id,amount:amt,key,paid:db.settlements.includes(key)});d.a-=amt;c.a-=amt;if(d.a<0.01)i++;if(c.a<0.01)j++;}return res;}
+// settlements() — returns each debt pair with full payment history
+// db.settlements is now an array of {key, amount, paidAt} objects.
+// Old format (plain strings) is migrated on the fly.
+function normSettlements(){
+  return (db.settlements||[]).map(s=>
+    typeof s==='string' ? {key:s, amount:null, paidAt:null} : s
+  );
+}
+function paymentsForKey(key){
+  return normSettlements().filter(s=>s.key===key);
+}
+function totalPaidForKey(key, owed){
+  return paymentsForKey(key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:owed),0);
+}
+function settlements(){
+  var b=balances(),debt=[],cred=[],res=[];
+  Object.entries(b).forEach(([id,v])=>{
+    if(v<-0.01)debt.push({id,a:-v});
+    else if(v>0.01)cred.push({id,a:v});
+  });
+  var i=0,j=0;
+  while(i<debt.length&&j<cred.length){
+    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
+    var key=d.id+'-'+c.id;
+    var payments=paymentsForKey(key);
+    var totalPaid=payments.reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
+    var remaining=Math.max(0,amt-totalPaid);
+    res.push({
+      from:d.id, to:c.id, amount:amt, key,
+      payments,            // array of {key,amount,paidAt}
+      totalPaid,
+      remaining,
+      fullyPaid: remaining<0.01
+    });
+    d.a-=amt;c.a-=amt;
+    if(d.a<0.01)i++;if(c.a<0.01)j++;
+  }
+  return res;
+}
 function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
 function upi(n,a){return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax';}
 function ctotal(){return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||0),0);}
@@ -662,10 +702,12 @@ function tripSettlementStatus(t){
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
+  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
   var i=0,j=0,pending=0;
   while(i<debt.length&&j<cred.length){
     var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-    if(!t.settlements.includes(key)) pending+=amt;
+    var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
+    pending+=Math.max(0,amt-paid);
     d.a-=amt;c.a-=amt;
     if(d.a<0.01)i++;if(c.a<0.01)j++;
   }
@@ -736,7 +778,33 @@ function doEditExpense(id){
   modal='expense';render();
   setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
 }
-async function doMarkPaid(key,paid){if(paid)db.settlements.push(key);else db.settlements=db.settlements.filter(s=>s!==key);render();await saveTrip();}
+// Mark paid state
+var _mpKey='', _mpOwed=0;
+
+function openMarkPaid(key, owed){
+  _mpKey=key; _mpOwed=owed;
+  modal='markpaid'; render();
+  setTimeout(()=>{var el=document.getElementById('mp-amt');if(el){el.value=Math.round(owed);el.focus();el.select();}},100);
+}
+
+async function doMarkPaid(){
+  var amt=parseFloat((document.getElementById('mp-amt')||{value:''}).value);
+  if(isNaN(amt)||amt<=0){toast('Enter a valid amount');return;}
+  db.settlements.push({key:_mpKey, amount:amt, paidAt:new Date().toISOString()});
+  modal=null; render(); await saveTrip();
+  toast('✅ Payment of ₹'+Math.round(amt)+' recorded');
+}
+
+async function doRemovePayment(key, idx){
+  // Remove the idx-th payment entry for this key
+  var count=0;
+  db.settlements=normSettlements().filter(s=>{
+    if(s.key!==key) return true;
+    return count++!==idx;
+  });
+  render(); await saveTrip();
+  toast('↩️ Payment removed');
+}
 async function doReset(){
   warnConfirm('Delete <strong>all expenses</strong> from this story? Friends will be kept.', async function(){
     // Keep friends, only wipe expenses and settlements
@@ -867,7 +935,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='expense'?mExpense():modal==='access'?mAccess():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1096,10 +1164,10 @@ function tabSet(bal,sets){
   if(!db.friends.length) return `<div class="empty"><p>Add friends first!</p></div>`;
   if(!db.expenses.length) return `<div class="empty"><p>No expenses yet!</p></div>`;
 
-  var pending = sets.filter(s=>!s.paid);
-  var paid    = sets.filter(s=> s.paid);
+  var pending=sets.filter(s=>!s.fullyPaid);
+  var done   =sets.filter(s=> s.fullyPaid);
 
-  // Balances table
+  // ---- BALANCES ----
   var h=`<div class="btbl"><div style="font-weight:900;font-size:15px;margin-bottom:10px">Current Balances</div>`;
   h+=db.friends.map(f=>{
     var b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
@@ -1111,43 +1179,91 @@ function tabSet(bal,sets){
   // ---- PENDING PAYMENTS ----
   h+=`<div class="gbox" style="margin-bottom:12px">
     <h3>💳 Payments to Make${pending.length?` <span style="background:#ef4444;color:white;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${pending.length}</span>`:''}</h3>`;
+
   if(!pending.length){
     h+=`<p style="text-align:center;color:#16a34a;font-weight:700;padding:14px 0">🎉 All settled up!</p>`;
   }else{
-    h+=pending.map(s=>`
-    <div class="sc">
-      <div class="srow">
-        <div style="font-weight:700;font-size:13px">${gname(s.from)} → ${gname(s.to)}</div>
-        <div style="font-weight:900;font-size:17px;color:#16a34a">₹${Math.round(s.amount)}</div>
-      </div>
-      <div class="sbtns">
-        <a href="${upi(gname(s.to),s.amount)}" class="btn purple sm" style="flex:1">💳 Pay UPI</a>
-        <button class="btn green sm" onclick="doMarkPaid('${s.key}',true)" style="flex:1">✅ Mark Paid</button>
-      </div>
-    </div>`).join('');
+    h+=pending.map(s=>{
+      var partial=s.totalPaid>0;
+      var html=`<div class="sc" style="${partial?'border:2px solid #fde047;background:#fefce8;':''}">
+        <div class="srow">
+          <div>
+            <div style="font-weight:700;font-size:13px">${gname(s.from)} → ${gname(s.to)}</div>
+            ${partial?`<div style="font-size:11px;color:#92400e;margin-top:2px">
+              Paid so far: <strong>₹${Math.round(s.totalPaid)}</strong> · Remaining: <strong style="color:#ef4444">₹${Math.round(s.remaining)}</strong>
+            </div>`:''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-weight:900;font-size:17px;color:${partial?'#d97706':'#16a34a'}">₹${Math.round(s.remaining)}</div>
+            ${partial?`<div style="font-size:10px;color:#9ca3af">of ₹${Math.round(s.amount)}</div>`:''}
+          </div>
+        </div>`;
+      // Payment history entries for this pair (partial payments so far)
+      if(s.payments.length){
+        html+=`<div style="margin-bottom:8px">`;
+        s.payments.forEach((p,idx)=>{
+          var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
+          var pAmt=p.amount!=null?p.amount:s.amount;
+          html+=`<div class="pay-entry">
+            <span style="font-size:16px">💸</span>
+            <div style="flex:1">
+              <div style="font-weight:700;color:#15803d">₹${Math.round(pAmt)} paid</div>
+              <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
+            </div>
+            <button onclick="doRemovePayment('${s.key}',${idx})" style="background:none;color:#ef4444;font-size:13px;padding:2px 5px" title="Remove this payment">✕</button>
+          </div>`;
+        });
+        html+=`</div>`;
+      }
+      html+=`<div class="sbtns">
+        <a href="${upi(gname(s.to),s.remaining)}" class="btn purple sm" style="flex:1">💳 Pay UPI</a>
+        <button class="btn green sm" onclick="openMarkPaid('${s.key}',${s.remaining})" style="flex:1">✅ Mark Paid</button>
+      </div></div>`;
+      return html;
+    }).join('');
   }
   h+=`</div>`;
 
-  // ---- PAYMENT HISTORY ----
-  if(paid.length){
-    h+=`<div style="background:white;border-radius:12px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb">
-      <div style="font-size:13px;font-weight:900;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:8px">
-        🕐 Payment History
-        <span style="background:#f0fdf4;color:#16a34a;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${paid.length} paid</span>
-      </div>`;
-    h+=paid.map(s=>`
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f9fafb;border-radius:9px;margin-bottom:7px;border:2px solid #e5e7eb">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px">✓ Paid</span>
-            <span style="font-weight:700;font-size:13px;color:#374151">${gname(s.from)} → ${gname(s.to)}</span>
-          </div>
-          <div style="font-weight:900;font-size:15px;color:#6b7280;margin-top:2px">₹${Math.round(s.amount)}</div>
-        </div>
-        <button class="btn sm" style="background:#fef9c3;color:#92400e;font-weight:700;flex-shrink:0"
-          onclick="doMarkPaid('${s.key}',false)" title="Mark as unpaid again">↩️ Re-enable</button>
-      </div>`).join('');
-    h+=`</div>`;
+  // ---- COMPLETED PAYMENTS HISTORY ----
+  var allPayments=normSettlements();
+  if(allPayments.length||done.length){
+    // Gather all debt pairs that have any payments (pending or done)
+    var allSets=[...pending,...done];
+    var histSets=allSets.filter(s=>s.payments.length>0);
+    if(done.length||histSets.length){
+      h+=`<div style="background:white;border-radius:12px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb">
+        <div style="font-size:13px;font-weight:900;color:#374151;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+          🕐 Payment History
+          <span style="background:#f0fdf4;color:#16a34a;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${allPayments.length} payment${allPayments.length!==1?'s':''}</span>
+        </div>`;
+      // Show ALL pairs (done + partial-pending) with full payment breakdown
+      allSets.filter(s=>s.payments.length>0).forEach(s=>{
+        var isFullyPaid=s.fullyPaid;
+        h+=`<div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:800;color:#374151;margin-bottom:5px;display:flex;align-items:center;gap:6px">
+            ${isFullyPaid?'<span style="background:#dcfce7;color:#16a34a;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">✓ Fully Settled</span>':'<span style="background:#fef9c3;color:#92400e;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">⚡ Partial</span>'}
+            ${gname(s.from)} → ${gname(s.to)}
+            <span style="color:#9ca3af;font-weight:600;font-size:11px">(Total: ₹${Math.round(s.amount)})</span>
+          </div>`;
+        s.payments.forEach((p,idx)=>{
+          var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
+          var pAmt=p.amount!=null?p.amount:s.amount;
+          h+=`<div class="pay-entry ${isFullyPaid?'':'partial'}">
+            <span style="font-size:15px">💸</span>
+            <div style="flex:1">
+              <div style="font-weight:700;color:${isFullyPaid?'#15803d':'#92400e'}">₹${Math.round(pAmt)} paid</div>
+              <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
+            </div>
+            <button onclick="doRemovePayment('${s.key}',${idx})" style="background:#fef9c3;color:#92400e;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700" title="Re-enable / undo this payment">↩️ Undo</button>
+          </div>`;
+        });
+        if(isFullyPaid){
+          h+=`<button class="btn sm" style="background:#fef9c3;color:#92400e;width:100%;margin-top:4px;font-weight:700" onclick="doRemovePayment('${s.key}',${s.payments.length-1})">↩️ Re-enable Last Payment</button>`;
+        }
+        h+=`</div>`;
+      });
+      h+=`</div>`;
+    }
   }
 
   return h;
@@ -1399,6 +1515,34 @@ function mFriend(){
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
         <button class="btn primary" onclick="doAddFriend()">Add Friend</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function mMarkPaid(){
+  var sets=settlements();
+  var s=sets.find(x=>x.key===_mpKey);
+  var owed=s?s.remaining:_mpOwed;
+  return `<div class="overlay" onclick="modal=null;render()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3>💸 Record Payment</h3>
+      ${s?`<div style="background:#f0fdf4;border-radius:9px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        <div style="font-weight:700;color:#374151">${gname(s.from)} → ${gname(s.to)}</div>
+        <div style="color:#6b7280;margin-top:2px">
+          Total owed: <strong>₹${Math.round(s.amount)}</strong>
+          ${s.totalPaid>0?` · Paid so far: <strong style="color:#16a34a">₹${Math.round(s.totalPaid)}</strong>`:''}
+        </div>
+        <div style="font-size:12px;font-weight:700;color:#ef4444;margin-top:2px">Remaining: ₹${Math.round(owed)}</div>
+      </div>`:''}
+      <span class="lbl">Amount Being Paid Now (₹)</span>
+      <input id="mp-amt" class="f" type="number" inputmode="decimal" placeholder="0"
+        oninput="(function(){var v=parseFloat(document.getElementById('mp-amt').value)||0;var d=document.getElementById('mp-diff');if(!d)return;var diff=${owed}-v;if(v<=0){d.textContent='';return;}if(Math.abs(diff)<0.01){d.innerHTML='<span style=\\'color:#16a34a;font-weight:700\\'>✅ Fully settled</span>';}else if(diff>0){d.innerHTML='<span style=\\'color:#d97706;font-weight:700\\'>⚠️ Still remaining: ₹'+Math.round(diff)+'</span>';}else{d.innerHTML='<span style=\\'color:#7c3aed;font-weight:700\\'>ℹ️ Overpaying by ₹'+Math.round(-diff)+'</span>';}})()"
+        onkeydown="if(event.key==='Enter')doMarkPaid()">
+      <div id="mp-diff" style="font-size:12px;color:#6b7280;margin:-4px 0 10px;min-height:18px"></div>
+      <div class="mbtns">
+        <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
+        <button class="btn green" onclick="doMarkPaid()">✅ Record Payment</button>
       </div>
     </div>
   </div>`;
