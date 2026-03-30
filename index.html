@@ -694,9 +694,31 @@ setInterval(async()=>{
       // Don't wipe memories textarea while user is typing
       var memEl=document.getElementById('mem-text');
       var memTyping=memEl&&document.activeElement===memEl&&memEl.value.trim().length>0;
-      if(!memTyping) render();
+      if(!memTyping){
+        // Silently refresh memories list if on that tab
+        if(tab==='memories'){
+          var mr=await fbGet(tripId+'/memories');
+          memories=mr?Object.values(mr).filter(Boolean).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];
+          memoriesLoaded=true;
+          var listEl=document.getElementById('mem-list');
+          if(listEl) listEl.innerHTML=renderMemoryCards(); else render();
+        } else {
+          render();
+        }
+      }
     }
   }catch(e){}
+
+  // Silently refresh groups in background if on groups sub-tab
+  if(tab==='friends'&&frSubTab==='groups'){
+    try{
+      var gr=await fetch(FB_GROUPS+'/'+groupsKey()+'.json');
+      var gd=gr.ok?await gr.json():null;
+      myGroups=gd?Object.values(gd).filter(Boolean):[];
+      groupsLoaded=true;
+      render();
+    }catch(e){}
+  }
 },10000);
 
 // ============ CALC ============
@@ -1131,7 +1153,7 @@ function render(){
     <button class="tab ${tab==='expenses'?'on':''}" onclick="tab='expenses';render()">Expenses</button>
     <button class="tab ${tab==='friends'?'on':''}" onclick="tab='friends';render()">Friends (${db.friends.length})</button>
     <button class="tab ${tab==='settle'?'on':''}" onclick="tab='settle';render()">Settle Up</button>
-    <button class="tab ${tab==='memories'?'on':''}" onclick="tab='memories';if(!memoriesLoaded)loadMemories();else render()">📝 Memories</button>
+    <button class="tab ${tab==='memories'?'on':''}" onclick="tab='memories';loadMemories()">📝 Memories</button>
     <button class="tab ${tab==='dashboard'?'on':''}" onclick="tab='dashboard';if(!dashLoading)loadDashboard();render()">📊 Summary</button>
     ${adminTabHtml}
   </div>
@@ -1339,7 +1361,7 @@ function tabFr(bal){
   var h=`<div class="shd"><h2>Friends &amp; Groups</h2></div>
   <div class="fr-subtabs">
     <button class="fr-subtab ${frSubTab==='members'?'on':''}" onclick="frSubTab='members';render()">👥 Members (${db.friends.length})</button>
-    <button class="fr-subtab ${frSubTab==='groups'?'on':''}" onclick="frSubTab='groups';if(!groupsLoaded)loadGroups().then(render);else render()">🫂 My Groups (${myGroups.length})</button>
+    <button class="fr-subtab ${frSubTab==='groups'?'on':''}" onclick="frSubTab='groups';loadGroups().then(render)">🫂 My Groups (${myGroups.length})</button>
   </div>`;
 
   if(frSubTab==='members'){
@@ -1354,9 +1376,20 @@ function tabFr(bal){
         var txt=b>0.01?`Gets back ₹${Math.round(b)}`:b<-0.01?`Owes ₹${Math.round(-b)}`:'All settled ✓';
         var isCreator=f.name===creatorName&&(db.meta&&db.meta.createdBy)===currentUser.email;
         var hasExp=db.expenses.some(e=>e.paidBy===f.id||Object.keys(e.splitAmong||{}).includes(f.id));
-        return `<div class="fc">
-          <div class="av">${initials(f.name)}</div>
-          <div style="flex:1"><div style="font-weight:900;font-size:15px">${f.name}${isCreator?` <span style="font-size:10px;color:#d97706;font-weight:700">👑 You</span>`:''}</div><div class="${cls}">${txt}</div></div>
+        // Unregistered: friend was added via email but hasn't signed up yet (name===email)
+        var isUnregistered=f.email&&isEmail(f.name)&&f.name===f.email;
+        return `<div class="fc" style="${isUnregistered?'opacity:0.75;border-color:#fca5a5':''}">
+          <div class="av" style="${isUnregistered?'background:linear-gradient(135deg,#9ca3af,#6b7280)':''}">
+            ${isUnregistered?'✉️':initials(f.name)}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:900;font-size:15px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              ${isUnregistered?f.email:f.name}
+              ${isCreator?`<span style="font-size:10px;color:#d97706;font-weight:700">👑 You</span>`:''}
+              ${isUnregistered?`<span style="background:#fef2f2;color:#b91c1c;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px">⚠️ Not registered</span>`:''}
+            </div>
+            <div class="${cls}" style="${isUnregistered?'color:#9ca3af':''}">${isUnregistered?'Awaiting sign-up':txt}</div>
+          </div>
           ${isCreator
             ?`<span style="font-size:18px" title="Story creator — cannot be removed">🔒</span>`
             :`<button class="dbtn" onclick="doDelFriend('${f.id}')" title="${hasExp?'Has expenses — remove expenses first':'Remove friend'}" style="font-size:18px;padding:4px 6px">✕</button>`
@@ -1752,6 +1785,14 @@ function tabAdmin(){
 
 // ============ MODALS ============
 // ============ MEMORIES TAB ============
+// Convert URLs in plain text to clickable <a> links (safe, opens in new tab)
+function linkify(text){
+  var urlRegex=/(https?:\/\/[^\s<>"']+)/g;
+  return text.replace(urlRegex,function(url){
+    return '<a href="'+url+'" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;word-break:break-all">'+url+'</a>';
+  });
+}
+
 function renderMemoryCards(){
   if(!memoriesLoaded) return `<div class="empty"><p>⏳ Loading memories...</p></div>`;
   if(!memories.length) return `<div class="empty"><p>No memories yet.<br><span style="font-size:12px;color:#9ca3af">Be the first to pen a memory from this story!</span></p></div>`;
@@ -1762,15 +1803,17 @@ function renderMemoryCards(){
     var canEdit=m.authorEmail===currentUser.email||currentUser.role==='admin';
     var canDel =m.authorEmail===currentUser.email||currentUser.role==='admin';
     var safeText=m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var linkedText=linkify(safeText); // convert URLs to clickable links
     var isLong=m.text.length>PREVIEW;
-    var preview=isLong?safeText.slice(0,PREVIEW)+'…':safeText;
+    var previewRaw=isLong?safeText.slice(0,PREVIEW)+'…':safeText;
+    var previewLinked=linkify(previewRaw);
     return `<div class="mem-card" id="mc-${m.id}">
-      <div style="white-space:pre-wrap;font-size:14px;color:#1f2937;line-height:1.65" id="mtext-${m.id}">${preview}</div>
+      <div style="white-space:pre-wrap;font-size:14px;color:#1f2937;line-height:1.65" id="mtext-${m.id}">${previewLinked}</div>
       ${isLong?`<button onclick="
         var el=document.getElementById('mtext-${m.id}');
-        var full=${JSON.stringify(safeText)};
-        var isShort=el.textContent.endsWith('…');
-        el.innerHTML=isShort?full:'${preview.slice(0,-1)}…';
+        var isShort=el.getAttribute('data-expanded')!=='1';
+        el.innerHTML=isShort?${JSON.stringify(linkedText)}:${JSON.stringify(previewLinked)};
+        el.setAttribute('data-expanded',isShort?'1':'0');
         this.textContent=isShort?'▲ Show less':'▼ Read more';
       " style="background:none;color:#d97706;font-size:12px;font-weight:700;margin-top:4px;padding:0">▼ Read more</button>`:''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid #f3f4f6;gap:8px;flex-wrap:wrap">
