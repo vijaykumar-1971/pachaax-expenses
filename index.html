@@ -61,6 +61,23 @@ button{cursor:pointer;border:none;font-family:inherit}
 .sc.paid{background:#f3f4f6;opacity:0.6}
 .pay-entry{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f0fdf4;border-radius:8px;margin-bottom:5px;border:1px solid #86efac;font-size:12px}
 .pay-entry.partial{background:#fefce8;border-color:#fde047}
+/* MEMORIES */
+.mem-card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb}
+.mem-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;font-size:15px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+/* GROUPS */
+.grp-card{background:white;border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb}
+.fr-subtabs{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;gap:3px;margin-bottom:14px}
+.fr-subtab{flex:1;padding:7px;border-radius:8px;font-size:12px;font-weight:700;background:none;color:#6b7280;text-align:center;cursor:pointer;border:none;font-family:inherit}
+.fr-subtab.on{background:white;color:#92400e;box-shadow:0 1px 4px rgba(0,0,0,0.1)}
+/* GROUPS */
+.group-card{background:white;border-radius:11px;padding:12px 14px;margin-bottom:9px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #ddd6fe}
+.group-pill{background:#ede9fe;color:#6d28d9;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:800;display:inline-flex;align-items:center;gap:3px;margin:2px}
+/* MEMORIES */
+.mem-card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border-left:4px solid #d97706}
+.mem-meta{font-size:11px;color:#9ca3af;margin-top:6px;display:flex;justify-content:space-between;align-items:center}
+.fr-subtabs{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;margin-bottom:14px;gap:3px}
+.fr-subtab{flex:1;padding:8px;border-radius:8px;font-size:12px;font-weight:700;background:none;color:#6b7280;border:none;cursor:pointer;font-family:inherit;text-align:center}
+.fr-subtab.on{background:white;color:#92400e;box-shadow:0 1px 4px rgba(0,0,0,0.1)}
 .srow{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
 .sbtns{display:flex;gap:7px}
 .foot{position:fixed;bottom:0;left:0;right:0;background:#78350f;color:#fef3c7;padding:7px;text-align:center;font-size:11px;z-index:50}
@@ -226,7 +243,17 @@ let dashData      = [];   // [{id, name, date, meta, friends, expenses, settleme
 let dashLoading   = false;
 let dashLoaded    = false;
 
-// OTP flow state (persisted so page refresh doesn't lose it)
+// --- GROUPS ---
+var myGroups       = [];   // [{id, name, emails:[]}]
+var groupsLoaded   = false;
+var frSubTab       = 'members'; // 'members' | 'groups'
+var editGroupId    = null;
+var newGroupName   = '';
+var newGroupEmails = ''; // comma-separated
+
+// --- MEMORIES ---
+var memories       = [];   // [{id, text, author, authorEmail, createdAt}]
+var memoriesLoaded = false;
 var _otpState = JSON.parse(localStorage.getItem('px-otp') || 'null');
 // _otpState = { email, displayName, passwordHash, role, otp, sentAt, purpose:'verify'|'reset' }
 var _otpResendCooldown = 0;
@@ -828,8 +855,8 @@ async function doCreateTrip(){
   modal=null; dashLoaded=false; tab='friends'; render();
   await fbSet(tripId, db);
 }
-function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;tab='friends';render();loadTrip();}
-function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;render();loadTrips();}
+function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';tab='friends';render();loadTrip();loadMemories();}
+function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';render();loadTrips();}
 function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
 function doSetSplit(t){
   db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
@@ -843,7 +870,8 @@ function doSetSplit(t){
 }
 
 // ============ CATEGORY MANAGEMENT (app-level, admin only) ============
-const FB_CATS = 'https://pachaax-expenses-default-rtdb.firebaseio.com/app_categories';
+const FB_CATS   = 'https://pachaax-expenses-default-rtdb.firebaseio.com/app_categories';
+const FB_GROUPS = 'https://pachaax-expenses-default-rtdb.firebaseio.com/app_groups';
 var appCategories = [];
 
 async function loadCategories(){
@@ -870,6 +898,97 @@ async function doDelCategory(cat){
   appCategories=appCategories.filter(c=>c!==cat);
   await fetch(FB_CATS+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(appCategories)});
   toast('🗑️ Category removed'); render();
+}
+
+// ============ GROUPS (per-user, app-level) ============
+function groupsKey(){ return eKey(currentUser.email); }
+
+async function loadGroups(){
+  try{
+    var r=await fetch(FB_GROUPS+'/'+groupsKey()+'.json');
+    var d=r.ok?await r.json():null;
+    myGroups=d?Object.values(d).filter(Boolean):[];
+  }catch(e){myGroups=[];}
+  groupsLoaded=true;
+}
+
+async function saveGroups(){
+  var obj={};
+  myGroups.forEach(g=>obj[g.id]=g);
+  await fetch(FB_GROUPS+'/'+groupsKey()+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});
+}
+
+async function doSaveGroup(){
+  var name=(document.getElementById('grp-name')||{value:''}).value.trim();
+  var emailsRaw=(document.getElementById('grp-emails')||{value:''}).value.trim();
+  if(!name){toast('Enter a group name');return;}
+  var emails=emailsRaw.split(/[\s,;]+/).map(e=>e.trim().toLowerCase()).filter(e=>isEmail(e));
+  if(!emails.length){toast('Enter at least one valid email');return;}
+  if(editGroupId){
+    var idx=myGroups.findIndex(g=>g.id===editGroupId);
+    if(idx!==-1) myGroups[idx]={...myGroups[idx],name,emails};
+    toast('✅ Group updated');
+  }else{
+    myGroups.push({id:'g'+Date.now(),name,emails});
+    toast('✅ Group created');
+  }
+  await saveGroups();
+  editGroupId=null; modal=null; render();
+}
+
+async function doDelGroup(id){
+  warnConfirm('Delete this group? Story access already granted will not be removed.', async function(){
+    myGroups=myGroups.filter(g=>g.id!==id);
+    await saveGroups();
+    toast('🗑️ Group deleted'); render();
+  },'Delete');
+}
+
+async function doGrantGroupAccess(groupId){
+  var g=myGroups.find(x=>x.id===groupId);
+  if(!g||!g.emails.length){toast('Group has no members');return;}
+  var added=0,skipped=0;
+  var members=db.meta.members||[];
+  for(var email of g.emails){
+    if(email===currentUser.email||members.includes(email)){skipped++;continue;}
+    try{
+      var rec=await faGet(eKey(email));
+      if(rec&&rec.verified){ members.push(email); added++; }
+      else skipped++;
+    }catch(e){skipped++;}
+  }
+  db.meta.members=members;
+  await fbSet(tripId+'/meta',db.meta);
+  toast('✅ Added '+added+' member'+(added!==1?'s':'')+(skipped?' ('+skipped+' skipped)':''));
+  render();
+}
+
+// ============ MEMORIES ============
+async function loadMemories(){
+  try{
+    var r=await fbGet(tripId+'/memories');
+    memories=r?Object.values(r).filter(Boolean).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];
+  }catch(e){memories=[];}
+  memoriesLoaded=true; render();
+}
+
+async function doAddMemory(){
+  var txt=(document.getElementById('mem-text')||{value:''}).value.trim();
+  if(!txt){toast('Write something first!');return;}
+  if(txt.length>2000){toast('Too long — max 2000 characters');return;}
+  var m={id:'m'+Date.now(),text:txt,author:currentUser.displayName,authorEmail:currentUser.email,createdAt:new Date().toISOString()};
+  await fetch(url(tripId+'/memories/'+m.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+  memories.unshift(m);
+  document.getElementById('mem-text').value='';
+  toast('📝 Memory saved!'); render();
+}
+
+async function doDelMemory(id){
+  warnConfirm('Delete this memory?', async function(){
+    await fetch(url(tripId+'/memories/'+id),{method:'DELETE'});
+    memories=memories.filter(m=>m.id!==id);
+    toast('🗑️ Memory deleted'); render();
+  },'Delete');
 }
 
 function copyText(text){
@@ -902,6 +1021,7 @@ function render(){
   if(tab==='expenses')    body=tabExp(bal);
   else if(tab==='friends')body=tabFr(bal);
   else if(tab==='settle') body=tabSet(bal,sets);
+  else if(tab==='memories') body=tabMemories();
   else if(tab==='dashboard') body=tabDashboard();
   else if(tab==='admin'&&isAdmin) body=tabAdmin();
 
@@ -931,11 +1051,12 @@ function render(){
     <button class="tab ${tab==='expenses'?'on':''}" onclick="tab='expenses';render()">Expenses</button>
     <button class="tab ${tab==='friends'?'on':''}" onclick="tab='friends';render()">Friends (${db.friends.length})</button>
     <button class="tab ${tab==='settle'?'on':''}" onclick="tab='settle';render()">Settle Up</button>
+    <button class="tab ${tab==='memories'?'on':''}" onclick="tab='memories';if(!memoriesLoaded)loadMemories();else render()">📝 Memories</button>
     <button class="tab ${tab==='dashboard'?'on':''}" onclick="tab='dashboard';if(!dashLoading)loadDashboard();render()">📊 Summary</button>
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1134,29 +1255,72 @@ function tabExp(bal){
 
 function tabFr(bal){
   var creatorName=currentUser.displayName;
-  var isOwnerView=(db.meta&&db.meta.createdBy)===currentUser.email||currentUser.role==='admin';
-  var h=`<div class="shd"><h2>Your Group</h2>
-    <button class="btn primary sm" onclick="fname='';modal='friend';render();setTimeout(()=>{var e=document.getElementById('if');if(e)e.focus();},100)">+ Add</button>
+
+  var h=`<div class="shd"><h2>Friends &amp; Groups</h2></div>
+  <div class="fr-subtabs">
+    <button class="fr-subtab ${frSubTab==='members'?'on':''}" onclick="frSubTab='members';render()">👥 Members (${db.friends.length})</button>
+    <button class="fr-subtab ${frSubTab==='groups'?'on':''}" onclick="frSubTab='groups';if(!groupsLoaded)loadGroups().then(render);else render()">🫂 My Groups (${myGroups.length})</button>
   </div>`;
-  if(!db.friends.length) return h+`<div class="empty"><p>👥 Add your travel buddies!</p></div>`;
-  h+=db.friends.map(f=>{
-    var b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
-    var txt=b>0.01?`Gets back ₹${Math.round(b)}`:b<-0.01?`Owes ₹${Math.round(-b)}`:'All settled ✓';
-    var isCreator=f.name===creatorName&&(db.meta&&db.meta.createdBy)===currentUser.email;
-    var hasExp=db.expenses.some(e=>e.paidBy===f.id||Object.keys(e.splitAmong||{}).includes(f.id));
-    return `<div class="fc">
-      <div class="av">${initials(f.name)}</div>
-      <div style="flex:1"><div style="font-weight:900;font-size:15px">${f.name}${isCreator?` <span style="font-size:10px;color:#d97706;font-weight:700">👑 You</span>`:''}</div><div class="${cls}">${txt}</div></div>
-      ${isCreator
-        ? `<span style="font-size:18px" title="Story creator — cannot be removed">🔒</span>`
-        : `<button class="dbtn" onclick="doDelFriend('${f.id}')" title="${hasExp?'Has expenses — remove expenses first':'Remove friend'}" style="font-size:18px;padding:4px 6px">✕</button>`
-      }
+
+  if(frSubTab==='members'){
+    h+=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn primary sm" onclick="fname='';modal='friend';render();setTimeout(()=>{var e=document.getElementById('if');if(e)e.focus();},100)">+ Add Friend</button>
     </div>`;
-  }).join('');
-  h+=`<div style="text-align:center;margin-top:12px">
-    <button class="btn danger sm" onclick="doReset()">🗑️ Reset All Expenses</button>
-    <div style="font-size:10px;color:#9ca3af;margin-top:5px">Friends will not be deleted</div>
-  </div>`;
+    if(!db.friends.length){
+      h+=`<div class="empty"><p>👥 Add your travel buddies!</p></div>`;
+    }else{
+      h+=db.friends.map(f=>{
+        var b=bal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
+        var txt=b>0.01?`Gets back ₹${Math.round(b)}`:b<-0.01?`Owes ₹${Math.round(-b)}`:'All settled ✓';
+        var isCreator=f.name===creatorName&&(db.meta&&db.meta.createdBy)===currentUser.email;
+        var hasExp=db.expenses.some(e=>e.paidBy===f.id||Object.keys(e.splitAmong||{}).includes(f.id));
+        return `<div class="fc">
+          <div class="av">${initials(f.name)}</div>
+          <div style="flex:1"><div style="font-weight:900;font-size:15px">${f.name}${isCreator?` <span style="font-size:10px;color:#d97706;font-weight:700">👑 You</span>`:''}</div><div class="${cls}">${txt}</div></div>
+          ${isCreator
+            ?`<span style="font-size:18px" title="Story creator — cannot be removed">🔒</span>`
+            :`<button class="dbtn" onclick="doDelFriend('${f.id}')" title="${hasExp?'Has expenses — remove expenses first':'Remove friend'}" style="font-size:18px;padding:4px 6px">✕</button>`
+          }
+        </div>`;
+      }).join('');
+      h+=`<div style="text-align:center;margin-top:12px">
+        <button class="btn danger sm" onclick="doReset()">🗑️ Reset All Expenses</button>
+        <div style="font-size:10px;color:#9ca3af;margin-top:5px">Friends will not be deleted</div>
+      </div>`;
+    }
+
+  }else{
+    // ---- GROUPS SUB-TAB ----
+    h+=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn primary sm" onclick="editGroupId=null;modal='group';render();setTimeout(()=>{var e=document.getElementById('grp-name');if(e)e.focus();},100)">+ New Group</button>
+    </div>`;
+    if(!groupsLoaded){
+      h+=`<div class="empty"><p>⏳ Loading groups...</p></div>`;
+    }else if(!myGroups.length){
+      h+=`<div class="empty">
+        <p>🫂 No groups yet.</p>
+        <p style="font-size:12px;color:#9ca3af;margin-top:6px">Create a group to quickly grant story access to multiple people at once.</p>
+      </div>`;
+    }else{
+      h+=myGroups.map(g=>`
+        <div class="group-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-weight:900;font-size:15px;color:#1f2937">🫂 ${g.name}</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:2px">${g.emails.length} member${g.emails.length!==1?'s':''}</div>
+            </div>
+            <div style="display:flex;gap:5px">
+              <button class="btn sm" style="background:#ede9fe;color:#6d28d9" onclick="editGroupId='${g.id}';newGroupName='${g.name.replace(/'/g,'\\\'') }';newGroupEmails='${g.emails.join(', ')}';modal='group';render()">✏️</button>
+              <button class="btn danger sm" onclick="doDelGroup('${g.id}')">🗑️</button>
+            </div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+            ${g.emails.map(e=>`<span class="group-pill">👤 ${e}</span>`).join('')}
+          </div>
+          ${tripId&&isOwner(db.meta)?`<button class="btn sm" style="background:#d97706;color:white;width:100%;font-weight:700" onclick="doGrantGroupAccess('${g.id}')">🔑 Grant Story Access to This Group</button>`:''}
+        </div>`).join('');
+    }
+  }
   return h;
 }
 
@@ -1507,6 +1671,64 @@ function tabAdmin(){
 }
 
 // ============ MODALS ============
+// ============ MEMORIES TAB ============
+function tabMemories(){
+  var canWrite=canSeeTrip(db.meta); // all story members can write
+  var h=`<div class="shd"><h2>📝 Memories</h2></div>`;
+
+  if(canWrite){
+    h+=`<div style="background:white;border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #fed7aa">
+      <span class="lbl">Add a Memory</span>
+      <textarea id="mem-text" class="f" rows="4" placeholder="Write a memory from this story… a funny moment, a highlight, something to remember forever 🌟"
+        style="resize:vertical;min-height:80px"></textarea>
+      <button class="btn primary" onclick="doAddMemory()" style="width:100%">💾 Save Memory</button>
+    </div>`;
+  }
+
+  if(!memoriesLoaded){
+    h+=`<div class="empty"><p>⏳ Loading memories...</p></div>`;
+  }else if(!memories.length){
+    h+=`<div class="empty"><p>No memories yet.<br><span style="font-size:12px;color:#9ca3af">Be the first to pen a memory from this story!</span></p></div>`;
+  }else{
+    h+=memories.map(m=>{
+      var dt=m.createdAt?new Date(m.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
+      var canDel=m.authorEmail===currentUser.email||currentUser.role==='admin';
+      return `<div class="mem-card">
+        <div style="white-space:pre-wrap;font-size:14px;color:#1f2937;line-height:1.6">${m.text.replace(/</g,'&lt;')}</div>
+        <div class="mem-meta">
+          <span>✍️ <strong>${m.author||'Unknown'}</strong> · 🕐 ${dt}</span>
+          ${canDel?`<button class="dbtn" onclick="doDelMemory('${m.id}')" style="font-size:13px">🗑️</button>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  return h;
+}
+
+// ============ GROUP MODAL ============
+function mGroup(){
+  var g=editGroupId?myGroups.find(x=>x.id===editGroupId):null;
+  var name=g?g.name:'';
+  var emails=g?g.emails.join(', '):'';
+  return `<div class="overlay" onclick="modal=null;render()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3>${editGroupId?'✏️ Edit Group':'🫂 Create Group'}</h3>
+      <span class="lbl">Group Name</span>
+      <input id="grp-name" class="f" type="text" placeholder="e.g. Team India, Family" value="${name}"
+        onkeydown="if(event.key==='Enter')document.getElementById('grp-emails').focus()">
+      <span class="lbl">Member Emails</span>
+      <textarea id="grp-emails" class="f" rows="4"
+        placeholder="Enter emails separated by commas or new lines&#10;e.g. ravi@gmail.com, priya@gmail.com"
+        style="resize:vertical;min-height:90px">${emails}</textarea>
+      <p style="font-size:11px;color:#6b7280;margin:-4px 0 10px">Only registered &amp; verified users will be granted access when you add this group to a story.</p>
+      <div class="mbtns">
+        <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
+        <button class="btn primary" onclick="doSaveGroup()">${editGroupId?'💾 Save':'✅ Create Group'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function mFriend(){
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
@@ -1619,11 +1841,22 @@ function mAccess(){
         <button class="btn danger sm" onclick="doRevokeAccess('${m}')">Remove</button>
       </div>`).join('')
     :`<p style="font-size:12px;color:#9ca3af;text-align:center;padding:10px 0">No members yet.</p>`;
+  var groupOpts=myGroups.length
+    ?myGroups.map(g=>`<option value="${g.id}">🫂 ${g.name} (${g.emails.length} members)</option>`).join('')
+    :'';
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>🔑 Manage Story Access</h3>
-      <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Trip: <strong>${meta.name||tripId}</strong> · Owner: you</div>
-      <span class="lbl">Add Member by Email</span>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Story: <strong>${meta.name||tripId}</strong> · Owner: you</div>
+      ${groupOpts?`<span class="lbl">Grant Access to a Group</span>
+      <div style="display:flex;gap:7px;margin-bottom:14px">
+        <select id="access-group" class="f" style="margin:0;flex:1">
+          <option value="">— Select a group —</option>
+          ${groupOpts}
+        </select>
+        <button class="btn primary sm" onclick="var s=document.getElementById('access-group');if(s&&s.value)doGrantGroupAccess(s.value);else toast('Select a group')">Grant</button>
+      </div>`:''}
+      <span class="lbl">Add Individual by Email</span>
       <div style="display:flex;gap:7px;margin-bottom:14px">
         <input id="access-email" class="f" type="email" placeholder="friend@example.com" style="margin:0;flex:1" onkeydown="if(event.key==='Enter')doGrantAccess()">
         <button class="btn primary sm" onclick="doGrantAccess()">Grant</button>
@@ -1647,8 +1880,9 @@ function mAccess(){
   }
   render();
   if(currentUser){
-    loadCategories(); // load app-level categories for all users
-    if(tripId) loadTrip(); else loadTrips();
+    loadCategories();
+    loadGroups();
+    if(tripId){ loadTrip(); loadMemories(); } else loadTrips();
   }
 })();
 </script>
