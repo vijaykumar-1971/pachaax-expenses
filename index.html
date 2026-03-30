@@ -63,7 +63,7 @@ button{cursor:pointer;border:none;font-family:inherit}
 .pay-entry.partial{background:#fefce8;border-color:#fde047}
 /* MEMORIES */
 .mem-card{background:white;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb}
-.mem-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;font-size:15px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mem-meta{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid #f3f4f6;font-size:11px;color:#6b7280}
 /* GROUPS */
 .grp-card{background:white;border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb}
 .fr-subtabs{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;gap:3px;margin-bottom:14px}
@@ -252,8 +252,9 @@ var newGroupName   = '';
 var newGroupEmails = ''; // comma-separated
 
 // --- MEMORIES ---
-var memories       = [];   // [{id, text, author, authorEmail, createdAt}]
+var memories       = [];
 var memoriesLoaded = false;
+var editMemoryId   = null;
 var _otpState = JSON.parse(localStorage.getItem('px-otp') || 'null');
 // _otpState = { email, displayName, passwordHash, role, otp, sentAt, purpose:'verify'|'reset' }
 var _otpResendCooldown = 0;
@@ -515,13 +516,16 @@ async function doGrantAccess(){
     var rec=await faGet(eKey(email));
     if(!rec){toast('⚠️ No registered user with this email.');return;}
     if(!rec.verified){toast('⚠️ That user has not verified their email yet.');return;}
+    var displayName=rec.displayName||email;
+    // Grant access
     var members=db.meta.members||[];
-    if(members.indexOf(email)!==-1){toast('Already has access.');return;}
-    members.push(email);
-    db.meta.members=members;
-    await fbSet(tripId+'/meta',db.meta);
-    document.getElementById('access-email').value='';
-    toast('✅ Access granted to '+email); render();
+    if(members.indexOf(email)===-1){ members.push(email); db.meta.members=members; }
+    // Add as friend if not already present
+    var alreadyFriend=db.friends.some(f=>f.email===email||f.name===displayName||f.name===email);
+    if(!alreadyFriend) db.friends.push({id:'f'+Date.now(),name:displayName,email});
+    await fbSet(tripId, db);
+    var el=document.getElementById('access-email'); if(el)el.value='';
+    toast('✅ Access granted to '+displayName); render();
   }catch(e){toast('⚠️ Failed. Try again.');}
 }
 
@@ -664,8 +668,35 @@ function updateSync(){
 
 setInterval(async()=>{
   if(!currentUser||!tripId||modal||syncing)return;
-  try{var d=await fbGet(tripId);if(d){db.friends=d.friends||[];db.expenses=d.expenses||[];db.settlements=d.settlements||[];db.meta=d.meta||{};lastSync=new Date().toLocaleTimeString();render();}}
-  catch(e){}
+  try{
+    var d=await fbGet(tripId);
+    if(d){
+      db.friends=d.friends||[];db.expenses=d.expenses||[];
+      db.settlements=d.settlements||[];db.meta=d.meta||{};
+      lastSync=new Date().toLocaleTimeString();
+
+      // Resolve email-placeholder friends to display names in background
+      var needsSave=false;
+      for(var i=0;i<db.friends.length;i++){
+        var f=db.friends[i];
+        if(f.email && isEmail(f.name) && f.name===f.email){
+          try{
+            var rec=await faGet(eKey(f.email));
+            if(rec&&rec.verified&&rec.displayName&&rec.displayName!==f.name){
+              db.friends[i]={...f,name:rec.displayName};
+              needsSave=true;
+            }
+          }catch(e){}
+        }
+      }
+      if(needsSave) await fbSet(tripId+'/friends',db.friends);
+
+      // Don't wipe memories textarea while user is typing
+      var memEl=document.getElementById('mem-text');
+      var memTyping=memEl&&document.activeElement===memEl&&memEl.value.trim().length>0;
+      if(!memTyping) render();
+    }
+  }catch(e){}
 },10000);
 
 // ============ CALC ============
@@ -947,19 +978,34 @@ async function doDelGroup(id){
 async function doGrantGroupAccess(groupId){
   var g=myGroups.find(x=>x.id===groupId);
   if(!g||!g.emails.length){toast('Group has no members');return;}
-  var added=0,skipped=0;
+  var accessAdded=0, friendsAdded=0, skipped=0;
   var members=db.meta.members||[];
+
   for(var email of g.emails){
-    if(email===currentUser.email||members.includes(email)){skipped++;continue;}
+    if(email===currentUser.email){skipped++;continue;}
+    // Lookup the user in Firebase to get their display name
+    var displayName=email; // fallback: use email as name
     try{
       var rec=await faGet(eKey(email));
-      if(rec&&rec.verified){ members.push(email); added++; }
-      else skipped++;
-    }catch(e){skipped++;}
+      if(rec&&rec.verified) displayName=rec.displayName||email;
+    }catch(e){}
+
+    // Grant story access (meta.members)
+    if(!members.includes(email)){ members.push(email); accessAdded++; }
+
+    // Add as friend if not already in friends list
+    var alreadyFriend=db.friends.some(f=>
+      f.email===email || f.name===displayName || f.name===email
+    );
+    if(!alreadyFriend){
+      db.friends.push({id:'f'+Date.now()+'_'+Math.random().toString(36).slice(2), name:displayName, email});
+      friendsAdded++;
+    }
   }
+
   db.meta.members=members;
-  await fbSet(tripId+'/meta',db.meta);
-  toast('✅ Added '+added+' member'+(added!==1?'s':'')+(skipped?' ('+skipped+' skipped)':''));
+  await fbSet(tripId, db); // save both meta and friends together
+  toast('✅ '+(accessAdded?accessAdded+' access granted':'Access updated')+(friendsAdded?' · '+friendsAdded+' friends added':''));
   render();
 }
 
@@ -973,14 +1019,48 @@ async function loadMemories(){
 }
 
 async function doAddMemory(){
-  var txt=(document.getElementById('mem-text')||{value:''}).value.trim();
+  // Read value BEFORE any async work to avoid losing it
+  var el=document.getElementById('mem-text');
+  var txt=el?el.value.trim():'';
   if(!txt){toast('Write something first!');return;}
   if(txt.length>2000){toast('Too long — max 2000 characters');return;}
+  // Disable button to prevent double-submit
+  var btn=document.getElementById('mem-save-btn');
+  if(btn){btn.disabled=true;btn.textContent='💾 Saving...';}
   var m={id:'m'+Date.now(),text:txt,author:currentUser.displayName,authorEmail:currentUser.email,createdAt:new Date().toISOString()};
-  await fetch(url(tripId+'/memories/'+m.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
-  memories.unshift(m);
-  document.getElementById('mem-text').value='';
-  toast('📝 Memory saved!'); render();
+  try{
+    await fetch(url(tripId+'/memories/'+m.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+    memories.unshift(m);
+    if(el) el.value='';
+    // Don't call render() — just refresh the memories list in-place
+    var listEl=document.getElementById('mem-list');
+    if(listEl) listEl.innerHTML=renderMemoryCards();
+    else render();
+    toast('📝 Memory saved!');
+  }catch(e){
+    toast('⚠️ Save failed, try again');
+    if(btn){btn.disabled=false;btn.textContent='💾 Save Memory';}
+  }
+}
+
+function openEditMemory(id){
+  editMemoryId=id;
+  modal='editmemory';
+  render();
+  setTimeout(()=>{var el=document.getElementById('mem-edit-text');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},100);
+}
+
+async function doSaveEditMemory(){
+  var el=document.getElementById('mem-edit-text');
+  var txt=el?el.value.trim():'';
+  if(!txt){toast('Memory cannot be empty');return;}
+  if(txt.length>2000){toast('Too long — max 2000 characters');return;}
+  var idx=memories.findIndex(m=>m.id===editMemoryId);
+  if(idx===-1){toast('Memory not found');return;}
+  memories[idx]={...memories[idx],text:txt,editedAt:new Date().toISOString()};
+  await fetch(url(tripId+'/memories/'+editMemoryId),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(memories[idx])});
+  editMemoryId=null; modal=null;
+  toast('✅ Memory updated'); render();
 }
 
 async function doDelMemory(id){
@@ -1056,7 +1136,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1672,36 +1752,51 @@ function tabAdmin(){
 
 // ============ MODALS ============
 // ============ MEMORIES TAB ============
-function tabMemories(){
-  var canWrite=canSeeTrip(db.meta); // all story members can write
-  var h=`<div class="shd"><h2>📝 Memories</h2></div>`;
+function renderMemoryCards(){
+  if(!memoriesLoaded) return `<div class="empty"><p>⏳ Loading memories...</p></div>`;
+  if(!memories.length) return `<div class="empty"><p>No memories yet.<br><span style="font-size:12px;color:#9ca3af">Be the first to pen a memory from this story!</span></p></div>`;
+  var PREVIEW=300;
+  return memories.map(m=>{
+    var dt=m.createdAt?new Date(m.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
+    var edited=m.editedAt?` <span style="color:#9ca3af;font-size:10px">(edited)</span>`:'';
+    var canEdit=m.authorEmail===currentUser.email||currentUser.role==='admin';
+    var canDel =m.authorEmail===currentUser.email||currentUser.role==='admin';
+    var safeText=m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var isLong=m.text.length>PREVIEW;
+    var preview=isLong?safeText.slice(0,PREVIEW)+'…':safeText;
+    return `<div class="mem-card" id="mc-${m.id}">
+      <div style="white-space:pre-wrap;font-size:14px;color:#1f2937;line-height:1.65" id="mtext-${m.id}">${preview}</div>
+      ${isLong?`<button onclick="
+        var el=document.getElementById('mtext-${m.id}');
+        var full=${JSON.stringify(safeText)};
+        var isShort=el.textContent.endsWith('…');
+        el.innerHTML=isShort?full:'${preview.slice(0,-1)}…';
+        this.textContent=isShort?'▲ Show less':'▼ Read more';
+      " style="background:none;color:#d97706;font-size:12px;font-weight:700;margin-top:4px;padding:0">▼ Read more</button>`:''}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid #f3f4f6;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;color:#6b7280">✍️ <strong>${m.author||'Unknown'}</strong>${edited} · 🕐 ${dt}</span>
+        <div style="display:flex;gap:5px;flex-shrink:0">
+          ${canEdit?`<button class="btn sm" style="background:#ede9fe;color:#6d28d9;font-size:11px" onclick="openEditMemory('${m.id}')">✏️ Edit</button>`:''}
+          ${canDel?`<button class="dbtn" onclick="doDelMemory('${m.id}')" style="font-size:13px">🗑️</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
 
+function tabMemories(){
+  var canWrite=canSeeTrip(db.meta);
+  var h=`<div class="shd"><h2>📝 Memories</h2></div>`;
   if(canWrite){
     h+=`<div style="background:white;border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #fed7aa">
       <span class="lbl">Add a Memory</span>
-      <textarea id="mem-text" class="f" rows="4" placeholder="Write a memory from this story… a funny moment, a highlight, something to remember forever 🌟"
-        style="resize:vertical;min-height:80px"></textarea>
-      <button class="btn primary" onclick="doAddMemory()" style="width:100%">💾 Save Memory</button>
+      <textarea id="mem-text" class="f" rows="4"
+        placeholder="Write a memory from this story… a funny moment, a highlight, something to remember forever 🌟"
+        style="resize:vertical;min-height:90px"></textarea>
+      <button id="mem-save-btn" class="btn primary" onclick="doAddMemory()" style="width:100%">💾 Save Memory</button>
     </div>`;
   }
-
-  if(!memoriesLoaded){
-    h+=`<div class="empty"><p>⏳ Loading memories...</p></div>`;
-  }else if(!memories.length){
-    h+=`<div class="empty"><p>No memories yet.<br><span style="font-size:12px;color:#9ca3af">Be the first to pen a memory from this story!</span></p></div>`;
-  }else{
-    h+=memories.map(m=>{
-      var dt=m.createdAt?new Date(m.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
-      var canDel=m.authorEmail===currentUser.email||currentUser.role==='admin';
-      return `<div class="mem-card">
-        <div style="white-space:pre-wrap;font-size:14px;color:#1f2937;line-height:1.6">${m.text.replace(/</g,'&lt;')}</div>
-        <div class="mem-meta">
-          <span>✍️ <strong>${m.author||'Unknown'}</strong> · 🕐 ${dt}</span>
-          ${canDel?`<button class="dbtn" onclick="doDelMemory('${m.id}')" style="font-size:13px">🗑️</button>`:''}
-        </div>
-      </div>`;
-    }).join('');
-  }
+  h+=`<div id="mem-list">${renderMemoryCards()}</div>`;
   return h;
 }
 
@@ -1724,6 +1819,23 @@ function mGroup(){
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
         <button class="btn primary" onclick="doSaveGroup()">${editGroupId?'💾 Save':'✅ Create Group'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function mEditMemory(){
+  var m=memories.find(x=>x.id===editMemoryId);
+  if(!m) return '';
+  return `<div class="overlay" onclick="modal=null;editMemoryId=null;render()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3>✏️ Edit Memory</h3>
+      <div style="font-size:11px;color:#6b7280;margin-bottom:10px">By ${m.author} · ${m.createdAt?new Date(m.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):''}</div>
+      <textarea id="mem-edit-text" class="f" rows="8"
+        style="resize:vertical;min-height:140px;line-height:1.6">${m.text.replace(/</g,'&lt;')}</textarea>
+      <div class="mbtns">
+        <button class="btn secondary" onclick="modal=null;editMemoryId=null;render()">Cancel</button>
+        <button class="btn primary" onclick="doSaveEditMemory()">💾 Save Changes</button>
       </div>
     </div>
   </div>`;
