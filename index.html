@@ -517,13 +517,16 @@ async function doGrantAccess(){
     if(!rec){toast('⚠️ No registered user with this email.');return;}
     if(!rec.verified){toast('⚠️ That user has not verified their email yet.');return;}
     var displayName=rec.displayName||email;
-    // Grant access
+    // Grant access — save meta only
     var members=db.meta.members||[];
     if(members.indexOf(email)===-1){ members.push(email); db.meta.members=members; }
-    // Add as friend if not already present
+    await fbSet(tripId+'/meta', db.meta);
+    // Add as friend — save friends only
     var alreadyFriend=db.friends.some(f=>f.email===email||f.name===displayName||f.name===email);
-    if(!alreadyFriend) db.friends.push({id:'f'+Date.now(),name:displayName,email});
-    await fbSet(tripId, db);
+    if(!alreadyFriend){
+      db.friends.push({id:'f'+Date.now(),name:displayName,email});
+      await fbSet(tripId+'/friends', db.friends);
+    }
     var el=document.getElementById('access-email'); if(el)el.value='';
     toast('✅ Access granted to '+displayName); render();
   }catch(e){toast('⚠️ Failed. Try again.');}
@@ -615,8 +618,14 @@ async function loadTrip(){
 
 async function saveTrip(){
   syncing=true; updateSync(); dashLoaded=false;
-  try{var ok=await fbSet(tripId,db);if(ok){lastSync=new Date().toLocaleTimeString();toast('✅ Saved!');}else toast('⚠️ Save failed');}
-  catch(e){toast('⚠️ No internet');}
+  try{
+    // Save each section separately to never overwrite the memories subtree
+    var ok=await fbSet(tripId+'/meta',         db.meta)
+        && await fbSet(tripId+'/friends',      db.friends)
+        && await fbSet(tripId+'/expenses',     db.expenses)
+        && await fbSet(tripId+'/settlements',  db.settlements);
+    if(ok){lastSync=new Date().toLocaleTimeString();toast('✅ Saved!');}else toast('⚠️ Save failed');
+  }catch(e){toast('⚠️ No internet');}
   syncing=false; updateSync();
 }
 
@@ -1026,7 +1035,9 @@ async function doGrantGroupAccess(groupId){
   }
 
   db.meta.members=members;
-  await fbSet(tripId, db); // save both meta and friends together
+  // Save meta and friends separately — never PUT the whole trip (would delete memories)
+  await fbSet(tripId+'/meta', db.meta);
+  if(friendsAdded>0) await fbSet(tripId+'/friends', db.friends);
   toast('✅ '+(accessAdded?accessAdded+' access granted':'Access updated')+(friendsAdded?' · '+friendsAdded+' friends added':''));
   render();
 }
@@ -1054,14 +1065,18 @@ async function doAddMemory(){
     await fetch(url(tripId+'/memories/'+m.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
     memories.unshift(m);
     if(el) el.value='';
-    // Don't call render() — just refresh the memories list in-place
+    // Update only the memories list in-place — don't call render() which would wipe textarea
     var listEl=document.getElementById('mem-list');
     if(listEl) listEl.innerHTML=renderMemoryCards();
     else render();
+    // Re-enable the button (it stays in the DOM since we didn't re-render the input box)
+    var btn2=document.getElementById('mem-save-btn');
+    if(btn2){btn2.disabled=false;btn2.textContent='💾 Save Memory';}
     toast('📝 Memory saved!');
   }catch(e){
     toast('⚠️ Save failed, try again');
-    if(btn){btn.disabled=false;btn.textContent='💾 Save Memory';}
+    var btn2=document.getElementById('mem-save-btn');
+    if(btn2){btn2.disabled=false;btn2.textContent='💾 Save Memory';}
   }
 }
 
