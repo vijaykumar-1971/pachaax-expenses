@@ -166,9 +166,9 @@ const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 // Fill in your EmailJS credentials below — they are baked into the HTML file
 // and work seamlessly across all browsers without any setup step.
 // Get them from https://emailjs.com → your account dashboard.
-const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';   // Account → General → Public Key
-const EJS_SERVICE_ID  = 'service_pph2qsj';   // Email Services → your service → Service ID
-const EJS_TEMPLATE_ID = 'template_rq1ptiv';  // Email Templates → your template → Template ID
+const EJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';   // Account → General → Public Key
+const EJS_SERVICE_ID  = 'YOUR_SERVICE_ID';   // Email Services → your service → Service ID
+const EJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';  // Email Templates → your template → Template ID
 // Template must have "To Email" = {{to_email}}
 // Body variables: {{to_name}} {{otp_code}} {{purpose}} {{app_name}}
 
@@ -1173,7 +1173,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1563,83 +1563,197 @@ function tabSet(bal,sets){
 
 // ============ DASHBOARD TAB ============
 // ============ EXPORT / SHARE ============
-function generateStoryReport(t){
+
+function csvEscape(v){
+  var s=String(v==null?'':v);
+  if(s.includes(',')||s.includes('"')||s.includes('\n')) return '"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+
+function generateCSV(t){
+  var b=tripBalances(t);
+  var rows=[];
+
+  // ── Sheet 1: STORY INFO (as header block) ──
+  rows.push(['STORY REPORT']);
+  rows.push(['Story Name', t.name]);
+  rows.push(['Purpose', (t.meta&&t.meta.purpose)||'']);
+  rows.push(['Start Date', t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'']);
+  var total=t.expenses.reduce((s,e)=>s+e.amount,0);
+  var budget=parseFloat((t.meta&&t.meta.budget)||0);
+  var pending=tripSettlementStatus(t);
+  rows.push(['Total Spent', Math.round(total)]);
+  if(budget>0){
+    rows.push(['Budget', Math.round(budget)]);
+    rows.push([total>budget?'Over Budget':'Remaining', Math.round(Math.abs(budget-total))]);
+  }
+  rows.push(['Pending Settlement', Math.round(pending)]);
+  rows.push([]);
+
+  // ── Itemized Expenses ──
+  rows.push(['ITEMIZED EXPENSES']);
+  rows.push(['#','Description','Category','Amount (₹)','Paid By','Split Among','Date','Time']);
+  var byDate=[...t.expenses].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  byDate.forEach((e,i)=>{
+    var paidBy=t.friends.find(f=>f.id===e.paidBy);
+    var splitNames=Object.entries(e.splitAmong||{})
+      .filter(([,a])=>a>0)
+      .map(([id,a])=>{var f=t.friends.find(x=>x.id===id);return (f?f.name:id)+': ₹'+Math.round(a);})
+      .join(' | ');
+    var dt=e.date?new Date(e.date):'';
+    var dateStr=dt?dt.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+    var timeStr=dt?dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):'';
+    rows.push([i+1, e.description, e.category||'', Math.round(e.amount), paidBy?paidBy.name:'', splitNames, dateStr, timeStr]);
+  });
+  rows.push([]);
+
+  // ── Balances ──
+  rows.push(['MEMBER BALANCES']);
+  rows.push(['Member','Balance (₹)','Status']);
+  t.friends.forEach(f=>{
+    var v=b[f.id]||0;
+    rows.push([f.name, Math.round(Math.abs(v)), v>0.01?'Gets back ₹'+Math.round(v):v<-0.01?'Owes ₹'+Math.round(-v):'Settled ✓']);
+  });
+  rows.push([]);
+
+  // ── Settle Up ──
+  rows.push(['SETTLE UP PAYMENTS']);
+  rows.push(['From','To','Amount (₹)','Status']);
+  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
+  var bCopy=tripBalances(t),debt=[],cred=[];
+  Object.entries(bCopy).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});
+  var ii=0,jj=0;
+  while(ii<debt.length&&jj<cred.length){
+    var d=debt[ii],c=cred[jj],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
+    var fromName=(t.friends.find(f=>f.id===d.id)||{name:d.id}).name;
+    var toName=(t.friends.find(f=>f.id===c.id)||{name:c.id}).name;
+    var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
+    var rem=Math.max(0,amt-paid);
+    var status=rem<0.01?'Fully Settled':paid>0?'Partial (₹'+Math.round(paid)+' paid, ₹'+Math.round(rem)+' remaining)':'Pending';
+    rows.push([fromName, toName, Math.round(amt), status]);
+    d.a-=amt; c.a-=amt;
+    if(d.a<0.01)ii++; if(c.a<0.01)jj++;
+  }
+  rows.push([]);
+  rows.push(['Generated by Expense Track & Settlement', '', new Date().toLocaleString('en-IN')]);
+
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+}
+
+function generatePlainText(t){
   var total=t.expenses.reduce((s,e)=>s+e.amount,0);
   var budget=parseFloat((t.meta&&t.meta.budget)||0);
   var pending=tripSettlementStatus(t);
   var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
   var lines=[];
-  lines.push('📖 STORY REPORT: '+t.name);
-  if(t.meta&&t.meta.purpose) lines.push('📌 Purpose: '+t.meta.purpose);
-  if(dateStr) lines.push('📅 Date: '+dateStr);
-  lines.push('');
-  lines.push('💰 FINANCIAL SUMMARY');
+  lines.push('Story: '+t.name);
+  if(t.meta&&t.meta.purpose) lines.push('Purpose: '+t.meta.purpose);
+  if(dateStr) lines.push('Date: '+dateStr);
   lines.push('Total Spent: ₹'+Math.round(total).toLocaleString());
-  if(budget>0){
-    lines.push('Budget: ₹'+Math.round(budget).toLocaleString());
-    var diff=total-budget;
-    lines.push(diff>0?'Over Budget by: ₹'+Math.round(diff).toLocaleString():'Remaining: ₹'+Math.round(-diff).toLocaleString());
-  }
+  if(budget>0) lines.push('Budget: ₹'+Math.round(budget).toLocaleString()+' ('+(total>budget?'Over by ₹'+Math.round(total-budget).toLocaleString():'₹'+Math.round(budget-total).toLocaleString()+' remaining')+')');
   lines.push('Pending Settlement: ₹'+Math.round(pending).toLocaleString());
   lines.push('');
-  // Balances
-  if(t.friends.length){
-    lines.push('👥 BALANCES ('+t.friends.length+' members)');
-    var b=tripBalances(t);
-    t.friends.forEach(f=>{
-      var v=b[f.id]||0;
-      if(v>0.01) lines.push('  '+f.name+': Gets back ₹'+Math.round(v));
-      else if(v<-0.01) lines.push('  '+f.name+': Owes ₹'+Math.round(-v));
-      else lines.push('  '+f.name+': Settled ✓');
-    });
-    lines.push('');
+  // Settle up summary
+  var b=tripBalances(t),debt=[],cred=[];
+  Object.entries(b).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});
+  if(debt.length||cred.length){
+    lines.push('Settle Up:');
+    var ii=0,jj=0;
+    while(ii<debt.length&&jj<cred.length){
+      var d=debt[ii],c=cred[jj],amt=Math.min(d.a,c.a);
+      var fn=(t.friends.find(f=>f.id===d.id)||{name:d.id}).name;
+      var tn=(t.friends.find(f=>f.id===c.id)||{name:c.id}).name;
+      lines.push('  '+fn+' → '+tn+': ₹'+Math.round(amt));
+      d.a-=amt; c.a-=amt;
+      if(d.a<0.01)ii++; if(c.a<0.01)jj++;
+    }
   }
-  // All expenses
-  if(t.expenses.length){
-    lines.push('🧾 ALL EXPENSES ('+t.expenses.length+')');
-    var byDate=[...t.expenses].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-    byDate.forEach(e=>{
-      var dt=e.date?new Date(e.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
-      var paidBy=t.friends.find(f=>f.id===e.paidBy);
-      var catStr=e.category?' ['+e.category+']':'';
-      lines.push('  • '+e.description+catStr+' — ₹'+Math.round(e.amount)+(paidBy?' (paid by '+paidBy.name+')':'')+(dt?' · '+dt:''));
-    });
-    lines.push('');
-  }
-  // Category breakdown
-  var catMap={};
-  t.expenses.forEach(e=>{var c=e.category||'Uncategorised';catMap[c]=(catMap[c]||0)+e.amount;});
-  var cats=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
-  if(cats.length>1){
-    lines.push('🏷️ BY CATEGORY');
-    cats.forEach(([c,v])=>lines.push('  '+c+': ₹'+Math.round(v).toLocaleString()));
-    lines.push('');
-  }
-  lines.push('─────────────────────────────');
-  lines.push('Generated by Expense Track & Settlement');
   return lines.join('\n');
 }
 
-async function doShareStory(storyId){
-  var t=dashData.find(x=>x.id===storyId);
-  if(!t){toast('Story data not loaded');return;}
-  var report=generateStoryReport(t);
-  var title='Expense Report: '+t.name;
+function downloadFile(filename, content, mimeType){
+  var blob=new Blob([content],{type:mimeType});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url; a.download=filename; a.style.display='none';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
+}
+
+var _shareStoryId='';
+function openShareModal(storyId){
+  _shareStoryId=storyId;
+  modal='share'; render();
+}
+
+async function doExportCSV(){
+  var t=dashData.find(x=>x.id===_shareStoryId);
+  if(!t) return;
+  var csv=generateCSV(t);
+  var fname=(t.name||'story').replace(/[^a-z0-9]/gi,'_')+'_expenses.csv';
+  downloadFile(fname, '\uFEFF'+csv, 'text/csv;charset=utf-8'); // BOM for Excel
+  toast('📥 CSV downloaded');
+}
+
+async function doShareText(){
+  var t=dashData.find(x=>x.id===_shareStoryId);
+  if(!t) return;
+  var txt=generatePlainText(t);
+  var title=t.name+' — Expense Summary';
   if(navigator.share){
-    try{
-      await navigator.share({title, text:report});
-      return;
-    }catch(e){ if(e.name==='AbortError') return; } // user cancelled
+    try{ await navigator.share({title, text:txt}); return; }
+    catch(e){ if(e.name==='AbortError') return; }
   }
-  // Fallback: copy to clipboard
   try{
-    await navigator.clipboard.writeText(report);
-    toast('📋 Report copied to clipboard! Paste into WhatsApp, email, etc.');
+    await navigator.clipboard.writeText(txt);
+    toast('📋 Summary copied! Paste into WhatsApp, Outlook, etc.');
   }catch(e){
-    // Last resort: open in new window so user can copy manually
     var w=window.open('','_blank');
-    if(w){ w.document.write('<pre style="font-family:monospace;white-space:pre-wrap;padding:16px;font-size:13px">'+report.replace(/</g,'&lt;')+'</pre>'); w.document.close(); }
+    if(w){ w.document.write('<pre style="font:14px/1.7 monospace;padding:20px;white-space:pre-wrap">'+txt.replace(/</g,'&lt;')+'</pre>'); w.document.close(); }
   }
+}
+
+function mShare(){
+  var t=dashData.find(x=>x.id===_shareStoryId);
+  if(!t) return '';
+  var total=t.expenses.reduce((s,e)=>s+e.amount,0);
+  var pending=tripSettlementStatus(t);
+  var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+  return `<div class="overlay" onclick="modal=null;render()">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:380px">
+      <h3>📤 Export &amp; Share</h3>
+      <div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px">
+        <div style="font-weight:900;font-size:15px;color:#1f2937;margin-bottom:4px">📖 ${t.name}</div>
+        ${dateStr?`<div style="color:#6b7280;font-size:11px">📅 ${dateStr}</div>`:''}
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <div><span style="font-size:10px;color:#9ca3af;font-weight:700;text-transform:uppercase">Spent</span><div style="font-weight:900;color:#d97706">₹${Math.round(total).toLocaleString()}</div></div>
+          <div><span style="font-size:10px;color:#9ca3af;font-weight:700;text-transform:uppercase">Pending</span><div style="font-weight:900;color:${pending>0?'#ef4444':'#16a34a'}">₹${Math.round(pending).toLocaleString()}</div></div>
+          <div><span style="font-size:10px;color:#9ca3af;font-weight:700;text-transform:uppercase">Expenses</span><div style="font-weight:900;color:#374151">${t.expenses.length}</div></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <button class="btn secondary" style="width:100%;text-align:left;padding:13px 14px;border-radius:10px;margin-bottom:8px;display:flex;align-items:center;gap:12px"
+          onclick="doExportCSV()">
+          <span style="font-size:24px">📊</span>
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#374151">Download CSV</div>
+            <div style="font-size:11px;color:#6b7280">Full expense report — open in Excel, Google Sheets</div>
+          </div>
+        </button>
+        <button class="btn secondary" style="width:100%;text-align:left;padding:13px 14px;border-radius:10px;display:flex;align-items:center;gap:12px"
+          onclick="doShareText()">
+          <span style="font-size:24px">📱</span>
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#374151">Share Summary</div>
+            <div style="font-size:11px;color:#6b7280">Story name, date, total &amp; settle-up — share via WhatsApp, Outlook, etc.</div>
+          </div>
+        </button>
+      </div>
+
+      <button class="btn secondary sm" style="width:100%" onclick="modal=null;render()">Close</button>
+    </div>
+  </div>`;
 }
 
 function tabDashboard(){
@@ -1739,7 +1853,7 @@ function tabDashboard(){
         💳 ₹${Math.round(pending)} pending settlement
       </div>`:''}
       <div style="margin-top:10px;padding-top:10px;border-top:2px solid #f3f4f6;display:flex;gap:7px" onclick="event.stopPropagation()">
-        <button class="btn secondary sm" style="flex:1;font-size:12px" onclick="doShareStory('${t.id}')">
+        <button class="btn secondary sm" style="flex:1;font-size:12px" onclick="openShareModal('${t.id}')">
           📤 Export &amp; Share
         </button>
         <button class="btn primary sm" style="flex:1;font-size:12px" onclick="doSelectTrip('${t.id}');render()">
