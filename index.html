@@ -2293,13 +2293,40 @@ async function doUpdateProfile(){
   if(!name){if(msg)msg.textContent='Name cannot be empty';return;}
   if(name===currentUser.displayName){modal=null;render();return;}
   if(msg){msg.style.color='#6b7280';msg.textContent='Saving...';}
+  var oldName=currentUser.displayName;
   try{
+    // 1. Update user record in Firebase auth
     var rec=await faGet(eKey(currentUser.email));
     if(!rec) throw new Error('User not found');
     rec.displayName=name;
     await fetch(aurl(eKey(currentUser.email)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)});
+
+    // 2. Update local state immediately
     currentUser.displayName=name;
     localStorage.setItem('px-user',JSON.stringify(currentUser));
+
+    // 3. Update current story's friends list in Firebase
+    if(tripId&&db.friends.length){
+      var changed=false;
+      db.friends=db.friends.map(f=>{
+        // Match by email (preferred) or by old display name matching creator
+        var isMe=f.email===currentUser.email||(f.name===oldName&&!f.email&&(db.meta&&db.meta.createdBy)===currentUser.email);
+        if(isMe&&f.name===oldName){changed=true;return{...f,name};}
+        return f;
+      });
+      if(changed) await fbSet(tripId+'/friends',db.friends);
+    }
+
+    // 4. Update dashData friends in memory so Summary tab reflects immediately
+    if(dashData&&dashData.length){
+      dashData.forEach(t=>{
+        t.friends=t.friends.map(f=>{
+          var isMe=f.email===currentUser.email||(f.name===oldName);
+          return (isMe&&f.name===oldName)?{...f,name}:f;
+        });
+      });
+    }
+
     modal=null;
     toast('✅ Display name updated to '+name);
     render();
