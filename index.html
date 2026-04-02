@@ -1146,21 +1146,23 @@ function render(){
 
   root.innerHTML=`
   <div class="hdr">
-    <div class="hdr-row">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="min-width:0;flex:1;overflow:hidden">
-        <h1 style="font-size:16px;font-weight:900;line-height:1.2;white-space:nowrap">💰 Expense &amp; Settle</h1>
-        <p id="sync" style="font-size:10px;color:#fef3c7;margin-top:1px">${syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:''}</p>
+        <h1 style="font-size:17px;font-weight:900;line-height:1.2;white-space:nowrap;color:white">💰 Expense &amp; Settle</h1>
+        <p id="sync" style="font-size:10px;color:#fef3c7;margin-top:2px;min-height:14px">${syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:''}</p>
         ${tripLabel?`<p style="font-size:10px;color:#fef3c7;font-weight:700;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📖 ${tripLabel}${tripDate?' · '+tripDate:''}${meta.purpose?' · '+meta.purpose:''}</p>`:''}
       </div>
-      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px">
-        <div style="text-align:right;max-width:80px">
-          <div style="font-size:10px;font-weight:700;color:#fef3c7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.displayName}</div>
-          <div style="font-size:9px;color:rgba(255,255,255,0.6)">${isAdmin?'👑 Admin':'👤 User'}</div>
+      <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="rbtn" onclick="loadTrip()" title="Refresh">🔄</button>
+          ${owner?`<button class="rbtn" onclick="modal='access';render()" title="Manage Access">🔑</button>`:''}
+          <button class="rbtn" onclick="doSwitchTrip()" title="Switch Story">🔀</button>
+          <button class="rbtn" onclick="doLogout()" title="Logout">⏏️</button>
         </div>
-        <button class="rbtn" onclick="loadTrip()" title="Refresh">🔄</button>
-        ${owner?`<button class="rbtn" onclick="modal='access';render()" title="Manage Access">🔑</button>`:''}
-        <button class="rbtn" onclick="doSwitchTrip()" title="Switch Story">🔀</button>
-        <button class="rbtn" onclick="doLogout()" title="Logout">⏏️</button>
+        <div style="text-align:right">
+          <div style="font-size:10px;font-weight:700;color:#fef3c7;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.displayName}</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.65)">${isAdmin?'👑 Admin':'👤 User'}</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1666,7 +1668,7 @@ function generatePlainText(t){
       var tn=(t.friends.find(f=>f.id===c.id)||{name:c.id}).name;
       var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
       var rem=Math.max(0,amt-paid);
-      lines.push('  '+fn+' → '+tn+': ₹'+Math.round(rem).toLocaleString()+' / ₹'+Math.round(amt).toLocaleString());
+      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(rem).toLocaleString()+' / ₹'+Math.round(amt).toLocaleString());
       d.a-=amt; c.a-=amt;
       if(d.a<0.01)ii++; if(c.a<0.01)jj++;
     }
@@ -1749,7 +1751,8 @@ function mShare(){
           <span style="font-size:24px">📱</span>
           <div>
             <div style="font-weight:800;font-size:13px;color:#374151">Share Summary</div>
-            <div style="font-size:11px;color:#6b7280">Story name, date, total &amp; settle-up — share via WhatsApp, Outlook, etc.</div>
+            <div style="font-size:11px;color:#6b7280;line-height:1.5">Story · Date · Total · Budget</div>
+            <div style="font-size:10px;color:#9ca3af;margin-top:2px;font-family:monospace;line-height:1.6">• Ravi → Priya: ₹4,000 / ₹6,000<br>• Kiran → Raj: ₹2,500 / ₹2,500</div>
           </div>
         </button>
       </div>
