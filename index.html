@@ -772,6 +772,11 @@ function settlements(){
   return res;
 }
 function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
+// Find current user's friend entry — tries email first, falls back to display name
+function findMe(friends){
+  return friends.find(f=>f.email===currentUser.email)
+      || friends.find(f=>f.name===currentUser.displayName);
+}
 function upi(n,a){return 'upi://pay?pn='+encodeURIComponent(n)+'&am='+Math.round(a)+'&cu=INR&tn=Pachaax';}
 function ctotal(){return Object.values(csplits).reduce((s,v)=>s+(parseFloat(v)||0),0);}
 
@@ -908,7 +913,7 @@ async function doCreateTrip(){
   if(!n){toast('Enter a story name!');return;}
   tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
   localStorage.setItem('px-trip',tripId);
-  var creatorFriend={id:'f'+Date.now(), name:currentUser.displayName};
+  var creatorFriend={id:'f'+Date.now(), name:currentUser.displayName, email:currentUser.email};
   db={friends:[creatorFriend],expenses:[],settlements:[],meta:{
     name:n, date:dt, created:new Date().toISOString(),
     createdBy:currentUser?currentUser.email:'', members:[],
@@ -1777,7 +1782,7 @@ function tabDashboard(){
   var grandTrips=dashData.length, grandOwes=0, grandGetBack=0;
   dashData.forEach(t=>{
     var bal=tripBalances(t);
-    var myFriend=t.friends.find(f=>f.name===currentUser.displayName);
+    var myFriend=findMe(t.friends);
     if(myFriend){var v=bal[myFriend.id]||0;if(v<-0.01)grandOwes+=(-v);else if(v>0.01)grandGetBack+=v;}
   });
 
@@ -1811,8 +1816,8 @@ function tabDashboard(){
     var bal=tripBalances(t);
     var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
     var isActive=t.id===tripId;
-    // Find the current user's friend entry by matching display name
-    var myFriend=t.friends.find(f=>f.name===currentUser.displayName);
+    // Find the current user's friend entry by email or display name
+    var myFriend=findMe(t.friends);
     var myBal=myFriend?(bal[myFriend.id]||0):null;
     var myBalHtml='';
     if(myFriend){
@@ -2305,24 +2310,21 @@ async function doUpdateProfile(){
     currentUser.displayName=name;
     localStorage.setItem('px-user',JSON.stringify(currentUser));
 
-    // 3. Update current story's friends list in Firebase
+    // 3. Rename the user in db.friends of the current story and save to Firebase
     if(tripId&&db.friends.length){
-      var changed=false;
       db.friends=db.friends.map(f=>{
-        // Match by email (preferred) or by old display name matching creator
-        var isMe=f.email===currentUser.email||(f.name===oldName&&!f.email&&(db.meta&&db.meta.createdBy)===currentUser.email);
-        if(isMe&&f.name===oldName){changed=true;return{...f,name};}
-        return f;
+        var isMe=f.email===currentUser.email||f.name===oldName;
+        return isMe?{...f,name,email:f.email||currentUser.email}:f;
       });
-      if(changed) await fbSet(tripId+'/friends',db.friends);
+      await fbSet(tripId+'/friends',db.friends);
     }
 
-    // 4. Update dashData friends in memory so Summary tab reflects immediately
+    // 4. Rename the user in all dashData stories in memory so Summary updates instantly
     if(dashData&&dashData.length){
       dashData.forEach(t=>{
         t.friends=t.friends.map(f=>{
-          var isMe=f.email===currentUser.email||(f.name===oldName);
-          return (isMe&&f.name===oldName)?{...f,name}:f;
+          var isMe=f.email===currentUser.email||f.name===oldName;
+          return isMe?{...f,name,email:f.email||currentUser.email}:f;
         });
       });
     }
