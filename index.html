@@ -1774,7 +1774,7 @@ function tabDashboard(){
   if(!dashData.length) return `<div class="empty"><p>No trips found. Create one to get started!</p></div>`;
 
   // Compute user's total owe / get-back across all stories
-  var grandOwes=0, grandGetBack=0;
+  var grandTrips=dashData.length, grandOwes=0, grandGetBack=0;
   dashData.forEach(t=>{
     var bal=tripBalances(t);
     var myFriend=t.friends.find(f=>f.name===currentUser.displayName);
