@@ -1150,7 +1150,7 @@ function render(){
       <div style="min-width:0;flex:1;overflow:hidden">
         <h1 style="font-size:17px;font-weight:900;line-height:1.2;white-space:nowrap;color:white">💰 Expense &amp; Settle</h1>
         <p id="sync" style="font-size:10px;color:#fef3c7;margin-top:2px;min-height:14px">${syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:''}</p>
-        ${tripLabel?`<p style="font-size:10px;color:#fef3c7;font-weight:700;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📖 ${tripLabel}${tripDate?' · '+tripDate:''}</p>`:''}
+        ${tripLabel?`<p style="font-size:10px;color:#fef3c7;font-weight:700;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📖 ${tripLabel}${tripDate?' · '+tripDate:''}${meta.purpose?' · '+meta.purpose:''}</p>`:''}
       </div>
       <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div style="display:flex;gap:4px;align-items:center">
@@ -1159,15 +1159,9 @@ function render(){
           <button class="rbtn" onclick="doSwitchTrip()" title="Switch Story">🔀</button>
           <button class="rbtn" onclick="doLogout()" title="Logout">⏏️</button>
         </div>
-        <div style="display:flex;align-items:center;gap:5px;justify-content:flex-end">
-          <div style="text-align:right">
-            <div style="font-size:10px;font-weight:700;color:#fef3c7;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.displayName}</div>
-            <div style="font-size:9px;color:rgba(255,255,255,0.65)">${isAdmin?'👑 Admin':'👤 User'}</div>
-          </div>
-          <button onclick="modal='profile';render()" title="Edit Profile"
-            style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.2);color:white;font-size:14px;font-weight:900;flex-shrink:0;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.4)">
-            ${initials(currentUser.displayName)}
-          </button>
+        <div style="text-align:right">
+          <div style="font-size:10px;font-weight:700;color:#fef3c7;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.displayName}</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.65)">${isAdmin?'👑 Admin':'👤 User'}</div>
         </div>
       </div>
     </div>
@@ -1181,7 +1175,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():modal==='profile'?mProfile():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1773,30 +1767,24 @@ function tabDashboard(){
   if(!dashLoaded) return `<div class="empty"><p>📊 Loading summary...</p></div>`;
   if(!dashData.length) return `<div class="empty"><p>No trips found. Create one to get started!</p></div>`;
 
-  // Compute user's total owe / get-back across all stories
-  var grandTrips=dashData.length, grandOwes=0, grandGetBack=0;
+  // Grand totals across all trips
+  var grandTotal=0, grandExp=0, grandPending=0, grandTrips=dashData.length;
   dashData.forEach(t=>{
-    var bal=tripBalances(t);
-    var myFriend=t.friends.find(f=>f.name===currentUser.displayName);
-    if(myFriend){var v=bal[myFriend.id]||0;if(v<-0.01)grandOwes+=(-v);else if(v>0.01)grandGetBack+=v;}
+    var tot=t.expenses.reduce((s,e)=>s+e.amount,0);
+    grandTotal+=tot; grandExp+=t.expenses.length;
+    grandPending+=tripSettlementStatus(t);
   });
 
   var h=`
-  <div class="dash-summary-bar" style="padding:10px 14px;margin-bottom:12px">
-    <div style="font-size:10px;font-weight:700;opacity:0.75;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px">📊 Your Overall Summary</div>
-    <div style="display:flex;gap:6px">
-      <div class="dash-stat" style="flex:1;padding:8px 6px">
-        <div class="n" style="font-size:16px">${grandTrips}</div>
-        <div class="l">Stories</div>
-      </div>
-      <div class="dash-stat" style="flex:1;padding:8px 6px;background:rgba(254,202,202,0.25)">
-        <div class="n" style="font-size:14px;color:#fca5a5">₹${Math.round(grandOwes).toLocaleString()}</div>
-        <div class="l">You Owe</div>
-      </div>
-      <div class="dash-stat" style="flex:1;padding:8px 6px;background:rgba(187,247,208,0.25)">
-        <div class="n" style="font-size:14px;color:#86efac">₹${Math.round(grandGetBack).toLocaleString()}</div>
-        <div class="l">Get Back</div>
-      </div>
+  <div class="dash-summary-bar">
+    <div style="font-size:11px;font-weight:700;opacity:0.8;text-transform:uppercase;margin-bottom:8px">
+      📊 Your Overall Summary
+    </div>
+    <div class="dash-grid">
+      <div class="dash-stat"><div class="n">${grandTrips}</div><div class="l">Stories</div></div>
+      <div class="dash-stat"><div class="n">${grandExp}</div><div class="l">Expenses</div></div>
+      <div class="dash-stat"><div class="n">₹${Math.round(grandTotal).toLocaleString()}</div><div class="l">Total Spent</div></div>
+      <div class="dash-stat"><div class="n" style="color:${grandPending>0?'#fbbf24':'#86efac'}">₹${Math.round(grandPending).toLocaleString()}</div><div class="l">Pending</div></div>
     </div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -1838,6 +1826,7 @@ function tabDashboard(){
           <div style="font-weight:900;font-size:15px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
             ${isActive?'📍 ':'📖 '}${t.name}
           </div>
+          ${t.meta&&t.meta.purpose?`<div style="font-size:11px;color:#7c3aed;font-weight:600;margin-top:2px">📌 ${t.meta.purpose}</div>`:''}
           <div style="font-size:11px;color:#9ca3af;margin-top:2px">${dateStr?'📅 '+dateStr:''} · ${t.friends.length} people · ${t.expenses.length} expenses</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -2257,55 +2246,6 @@ function mAccess(){
       </div>
     </div>
   </div>`;
-}
-
-// ============ PROFILE MODAL ============
-function mProfile(){
-  return `<div class="overlay" onclick="modal=null;render()">
-    <div class="modal" onclick="event.stopPropagation()" style="max-width:360px">
-      <h3>👤 My Profile</h3>
-      <div style="display:flex;align-items:center;gap:14px;background:#f9fafb;border-radius:12px;padding:14px;margin-bottom:16px">
-        <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#d97706,#ea580c);color:white;font-size:22px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          ${initials(currentUser.displayName)}
-        </div>
-        <div style="min-width:0">
-          <div style="font-weight:900;font-size:16px;color:#1f2937">${currentUser.displayName}</div>
-          <div style="font-size:12px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.email}</div>
-          <div style="font-size:11px;margin-top:3px">${currentUser.role==='admin'?'<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-weight:700;font-size:10px">👑 Admin</span>':'<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:20px;font-weight:700;font-size:10px">👤 User</span>'}</div>
-        </div>
-      </div>
-      <span class="lbl">Display Name</span>
-      <input id="profile-name" class="f" type="text" value="${currentUser.displayName}"
-        placeholder="Your display name"
-        onkeydown="if(event.key==='Enter')doUpdateProfile()">
-      <div id="profile-msg" style="font-size:12px;min-height:16px;margin:-4px 0 8px"></div>
-      <div class="mbtns">
-        <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
-        <button class="btn primary" onclick="doUpdateProfile()">💾 Save</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-async function doUpdateProfile(){
-  var name=(document.getElementById('profile-name')||{value:''}).value.trim();
-  var msg=document.getElementById('profile-msg');
-  if(!name){if(msg)msg.textContent='Name cannot be empty';return;}
-  if(name===currentUser.displayName){modal=null;render();return;}
-  if(msg){msg.style.color='#6b7280';msg.textContent='Saving...';}
-  try{
-    var rec=await faGet(eKey(currentUser.email));
-    if(!rec) throw new Error('User not found');
-    rec.displayName=name;
-    await fetch(aurl(eKey(currentUser.email)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)});
-    currentUser.displayName=name;
-    localStorage.setItem('px-user',JSON.stringify(currentUser));
-    modal=null;
-    toast('✅ Display name updated to '+name);
-    render();
-  }catch(e){
-    if(msg){msg.style.color='#ef4444';msg.textContent='Failed to save. Try again.';}
-  }
 }
 
 // ============ INIT ============
