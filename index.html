@@ -734,58 +734,85 @@ setInterval(async()=>{
 },10000);
 
 // ============ CALC ============
-function balances(){var b={};db.friends.forEach(f=>b[f.id]=0);db.expenses.forEach(e=>{b[e.paidBy]=(b[e.paidBy]||0)+e.amount;Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);});return b;}
-
-// Compute the NET REMAINING balance for each person from the settled debt pairs.
-// Positive = still owed money; Negative = still owes money.
-// This uses the settlements() output so it stays consistent with "Payments to Make".
-function settledBalances(){
-  var sb={};
-  db.friends.forEach(f=>sb[f.id]=0);
-  settlements().forEach(s=>{
-    sb[s.from]=(sb[s.from]||0)-s.remaining; // debtor: negative (still owes)
-    sb[s.to]  =(sb[s.to]  ||0)+s.remaining; // creditor: positive (still to receive)
+function balances(){
+  var b={};
+  db.friends.forEach(f=>b[f.id]=0);
+  db.expenses.forEach(e=>{
+    b[e.paidBy]=(b[e.paidBy]||0)+e.amount;
+    Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);
   });
-  return sb;
+  return b;
 }
-// settlements() — returns each debt pair with full payment history
-// db.settlements is now an array of {key, amount, paidAt} objects.
-// Old format (plain strings) is migrated on the fly.
+
+// Normalize settlements to canonical {fromId, toId, amount, paidAt} objects.
+// Handles legacy formats: plain strings "A-B" and {key, amount} objects.
 function normSettlements(){
-  return (db.settlements||[]).map(s=>
-    typeof s==='string' ? {key:s, amount:null, paidAt:null} : s
-  );
+  return (db.settlements||[]).map(s=>{
+    if(typeof s==='string'){
+      var pts=s.split('-');
+      return {fromId:pts[0], toId:pts.slice(1).join('-'), amount:null, paidAt:null};
+    }
+    if(s.key&&s.fromId===undefined){
+      // old {key, amount, paidAt} format
+      var kp=s.key.split('-');
+      return {fromId:kp[0], toId:kp.slice(1).join('-'), amount:s.amount, paidAt:s.paidAt};
+    }
+    return s; // already {fromId, toId, amount, paidAt}
+  });
 }
-function paymentsForKey(key){
-  return normSettlements().filter(s=>s.key===key);
+
+// Sum all direct cash payments from one person to another.
+function paidBetween(fromId, toId){
+  return normSettlements()
+    .filter(s=>s.fromId===fromId&&s.toId===toId)
+    .reduce((sum,s)=>sum+(s.amount||0),0);
 }
-function totalPaidForKey(key, owed){
-  return paymentsForKey(key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:owed),0);
-}
+
+// Main settlements calc — generates debt pairs and applies direct payments.
 function settlements(){
   var b=balances(),debt=[],cred=[],res=[];
   Object.entries(b).forEach(([id,v])=>{
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
+  // Sort for stable key generation
+  debt.sort((a,z)=>a.id.localeCompare(z.id));
+  cred.sort((a,z)=>a.id.localeCompare(z.id));
   var i=0,j=0;
   while(i<debt.length&&j<cred.length){
     var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
-    var key=d.id+'-'+c.id;
-    var payments=paymentsForKey(key);
-    var totalPaid=payments.reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
-    var remaining=Math.max(0,amt-totalPaid);
+    var paid=paidBetween(d.id,c.id);
+    // Subtract any reverse payment too (creditor may have paid debtor)
+    var reversePaid=paidBetween(c.id,d.id);
+    var netAmt=Math.max(0,amt-paid+reversePaid);
+    // Collect all payment entries between this pair for display
+    var payments=normSettlements().filter(s=>
+      (s.fromId===d.id&&s.toId===c.id)||(s.fromId===c.id&&s.toId===d.id)
+    ).map(s=>({...s, isReverse:s.fromId===c.id}));
+    var remaining=Math.max(0,amt-paid);
     res.push({
-      from:d.id, to:c.id, amount:amt, key,
-      payments,            // array of {key,amount,paidAt}
-      totalPaid,
+      from:d.id, to:c.id, amount:amt,
+      key:d.id+'-'+c.id, // kept for UI compatibility
+      payments: normSettlements().filter(s=>s.fromId===d.id&&s.toId===c.id),
+      totalPaid:paid,
       remaining,
       fullyPaid: remaining<0.01
     });
-    d.a-=amt;c.a-=amt;
-    if(d.a<0.01)i++;if(c.a<0.01)j++;
+    d.a-=amt; c.a-=amt;
+    if(d.a<0.01)i++; if(c.a<0.01)j++;
   }
   return res;
+}
+
+// Current Balances — derives from settlements() so always consistent with "Payments to Make".
+function settledBalances(){
+  var sb={};
+  db.friends.forEach(f=>sb[f.id]=0);
+  settlements().forEach(s=>{
+    sb[s.from]=(sb[s.from]||0)-s.remaining;
+    sb[s.to]  =(sb[s.to]  ||0)+s.remaining;
+  });
+  return sb;
 }
 function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
 // Find current user's friend entry — tries email first, falls back to display name
@@ -806,19 +833,31 @@ function tripBalances(t){
   });
   return b;
 }
-// For a given person in a story, compute how much they still OWE and GET BACK
-// after accounting for payments already made. Works on arbitrary trip data.
+// Normalize trip settlements — handles all 3 legacy formats + new format
+function normTripSettlements(t){
+  return (t.settlements||[]).map(s=>{
+    if(typeof s==='string'){var p=s.split('-');return{fromId:p[0],toId:p.slice(1).join('-'),amount:null};}
+    if(s.key&&s.fromId===undefined){var kp=s.key.split('-');return{fromId:kp[0],toId:kp.slice(1).join('-'),amount:s.amount};}
+    return s;
+  });
+}
+function tripPaidBetween(t, fromId, toId){
+  return normTripSettlements(t).filter(s=>s.fromId===fromId&&s.toId===toId).reduce((sum,s)=>sum+(s.amount||0),0);
+}
+
+// For a given person in a story, compute remaining OWE and GET BACK
 function tripPersonalBalance(t, friendId){
   var b=tripBalances(t),debt=[],cred=[];
   Object.entries(b).forEach(([id,v])=>{
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
-  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
+  debt.sort((a,z)=>a.id.localeCompare(z.id));
+  cred.sort((a,z)=>a.id.localeCompare(z.id));
   var owes=0, getsBack=0, i=0, j=0;
   while(i<debt.length&&j<cred.length){
-    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-    var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
+    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
+    var paid=tripPaidBetween(t,d.id,c.id);
     var remaining=Math.max(0,amt-paid);
     if(d.id===friendId) owes+=remaining;
     if(c.id===friendId) getsBack+=remaining;
@@ -833,11 +872,12 @@ function tripSettlementStatus(t){
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
-  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
+  debt.sort((a,z)=>a.id.localeCompare(z.id));
+  cred.sort((a,z)=>a.id.localeCompare(z.id));
   var i=0,j=0,pending=0;
   while(i<debt.length&&j<cred.length){
-    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-    var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
+    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
+    var paid=tripPaidBetween(t,d.id,c.id);
     pending+=Math.max(0,amt-paid);
     d.a-=amt;c.a-=amt;
     if(d.a<0.01)i++;if(c.a<0.01)j++;
@@ -864,7 +904,9 @@ async function doDelFriend(id){
     render();await saveTrip();
   },'Remove',true);
 }
+var _savingExpense=false;
 async function doAddExpense(){
+  if(_savingExpense) return;
   var desc=(document.getElementById('ied')||{value:''}).value.trim();
   var amt=parseFloat((document.getElementById('iea')||{value:''}).value);
   var payer=(document.getElementById('iep')||{value:''}).value;
@@ -872,6 +914,7 @@ async function doAddExpense(){
   var et=(document.getElementById('ietime')||{value:''}).value;
   var cat=(document.getElementById('iecat')||{value:''}).value.trim();
   if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
+  _savingExpense=true;
   var split={};
   if(esplit==='equal'){
     var per=amt/db.friends.length;
@@ -890,6 +933,7 @@ async function doAddExpense(){
     db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat});
   }
   modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';
+  _savingExpense=false;
   render();await saveTrip();
 }
 async function doDelExpense(id){
@@ -910,10 +954,10 @@ function doEditExpense(id){
   setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
 }
 // Mark paid state
-var _mpKey='', _mpOwed=0;
+var _mpFrom='', _mpTo='', _mpOwed=0;
 
-function openMarkPaid(key, owed){
-  _mpKey=key; _mpOwed=owed;
+function openMarkPaid(fromId, toId, owed){
+  _mpFrom=fromId; _mpTo=toId; _mpOwed=owed;
   modal='markpaid'; render();
   setTimeout(()=>{var el=document.getElementById('mp-amt');if(el){el.value=Math.round(owed);el.focus();el.select();}},100);
 }
@@ -921,18 +965,17 @@ function openMarkPaid(key, owed){
 async function doMarkPaid(){
   var amt=parseFloat((document.getElementById('mp-amt')||{value:''}).value);
   if(isNaN(amt)||amt<=0){toast('Enter a valid amount');return;}
-  db.settlements.push({key:_mpKey, amount:amt, paidAt:new Date().toISOString()});
+  db.settlements.push({fromId:_mpFrom, toId:_mpTo, amount:amt, paidAt:new Date().toISOString()});
   modal=null; render(); await saveTrip();
   toast('✅ Payment of ₹'+Math.round(amt)+' recorded');
 }
 
-async function doRemovePayment(key, idx){
-  // Remove the idx-th payment entry for this key
-  var count=0;
-  db.settlements=normSettlements().filter(s=>{
-    if(s.key!==key) return true;
-    return count++!==idx;
-  });
+async function doRemovePayment(globalIdx){
+  // globalIdx is the index in db.settlements (after normalization)
+  var norm=normSettlements();
+  if(globalIdx<0||globalIdx>=norm.length) return;
+  // Rebuild db.settlements skipping the entry at globalIdx
+  db.settlements=norm.filter((_,i)=>i!==globalIdx);
   render(); await saveTrip();
   toast('↩️ Payment removed');
 }
@@ -1544,23 +1587,24 @@ function tabSet(bal,sets){
       // Payment history entries for this pair (partial payments so far)
       if(s.payments.length){
         html+=`<div style="margin-bottom:8px">`;
-        s.payments.forEach((p,idx)=>{
+        var normAll=normSettlements();
+        s.payments.forEach((p)=>{
+          var globalIdx=normAll.findIndex(x=>x===p||(x.fromId===p.fromId&&x.toId===p.toId&&x.amount===p.amount&&x.paidAt===p.paidAt));
           var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
-          var pAmt=p.amount!=null?p.amount:s.amount;
           html+=`<div class="pay-entry">
             <span style="font-size:16px">💸</span>
             <div style="flex:1">
-              <div style="font-weight:700;color:#15803d">₹${Math.round(pAmt)} paid</div>
+              <div style="font-weight:700;color:#15803d">₹${Math.round(p.amount||0)} paid</div>
               <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
             </div>
-            <button onclick="doRemovePayment('${s.key}',${idx})" style="background:none;color:#ef4444;font-size:13px;padding:2px 5px" title="Remove this payment">✕</button>
+            <button onclick="doRemovePayment(${globalIdx})" style="background:none;color:#ef4444;font-size:13px;padding:2px 5px" title="Remove this payment">✕</button>
           </div>`;
         });
         html+=`</div>`;
       }
       html+=`<div class="sbtns">
         <a href="${upi(gname(s.to),s.remaining)}" class="btn purple sm" style="flex:1">💳 Pay UPI</a>
-        <button class="btn green sm" onclick="openMarkPaid('${s.key}',${s.remaining})" style="flex:1">✅ Mark Paid</button>
+        <button class="btn green sm" onclick="openMarkPaid('${s.from}','${s.to}',${s.remaining})" style="flex:1">✅ Mark Paid</button>
       </div></div>`;
       return html;
     }).join('');
@@ -1579,29 +1623,31 @@ function tabSet(bal,sets){
           🕐 Payment History
           <span style="background:#f0fdf4;color:#16a34a;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${allPayments.length} payment${allPayments.length!==1?'s':''}</span>
         </div>`;
-      // Show ALL pairs (done + partial-pending) with full payment breakdown
       allSets.filter(s=>s.payments.length>0).forEach(s=>{
         var isFullyPaid=s.fullyPaid;
+        var normAll=normSettlements();
         h+=`<div style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:800;color:#374151;margin-bottom:5px;display:flex;align-items:center;gap:6px">
             ${isFullyPaid?'<span style="background:#dcfce7;color:#16a34a;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">✓ Fully Settled</span>':'<span style="background:#fef9c3;color:#92400e;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">⚡ Partial</span>'}
             ${gname(s.from)} → ${gname(s.to)}
             <span style="color:#9ca3af;font-weight:600;font-size:11px">(Total: ₹${Math.round(s.amount)})</span>
           </div>`;
-        s.payments.forEach((p,idx)=>{
+        s.payments.forEach((p)=>{
+          var globalIdx=normAll.findIndex(x=>x===p||(x.fromId===p.fromId&&x.toId===p.toId&&x.amount===p.amount&&x.paidAt===p.paidAt));
           var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
-          var pAmt=p.amount!=null?p.amount:s.amount;
           h+=`<div class="pay-entry ${isFullyPaid?'':'partial'}">
             <span style="font-size:15px">💸</span>
             <div style="flex:1">
-              <div style="font-weight:700;color:${isFullyPaid?'#15803d':'#92400e'}">₹${Math.round(pAmt)} paid</div>
+              <div style="font-weight:700;color:${isFullyPaid?'#15803d':'#92400e'}">₹${Math.round(p.amount||0)} paid</div>
               <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
             </div>
-            <button onclick="doRemovePayment('${s.key}',${idx})" style="background:#fef9c3;color:#92400e;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700" title="Re-enable / undo this payment">↩️ Undo</button>
+            <button onclick="doRemovePayment(${globalIdx})" style="background:#fef9c3;color:#92400e;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700" title="Undo this payment">↩️ Undo</button>
           </div>`;
         });
-        if(isFullyPaid){
-          h+=`<button class="btn sm" style="background:#fef9c3;color:#92400e;width:100%;margin-top:4px;font-weight:700" onclick="doRemovePayment('${s.key}',${s.payments.length-1})">↩️ Re-enable Last Payment</button>`;
+        if(isFullyPaid&&s.payments.length>0){
+          var lastP=s.payments[s.payments.length-1];
+          var lastIdx=normAll.findIndex(x=>x===lastP||(x.fromId===lastP.fromId&&x.toId===lastP.toId&&x.amount===lastP.amount&&x.paidAt===lastP.paidAt));
+          h+=`<button class="btn sm" style="background:#fef9c3;color:#92400e;width:100%;margin-top:4px;font-weight:700" onclick="doRemovePayment(${lastIdx})">↩️ Re-enable Last Payment</button>`;
         }
         h+=`</div>`;
       });
@@ -2179,7 +2225,7 @@ function mFriend(){
 
 function mMarkPaid(){
   var sets=settlements();
-  var s=sets.find(x=>x.key===_mpKey);
+  var s=sets.find(x=>x.from===_mpFrom&&x.to===_mpTo);
   var owed=s?s.remaining:_mpOwed;
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
