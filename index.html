@@ -734,6 +734,8 @@ setInterval(async()=>{
 },10000);
 
 // ============ CALC ============
+
+// Raw expense balances (who paid vs who owes from expenses only)
 function balances(){
   var b={};
   db.friends.forEach(f=>b[f.id]=0);
@@ -744,74 +746,118 @@ function balances(){
   return b;
 }
 
-// Normalize settlements to canonical {fromId, toId, amount, paidAt} objects.
-// Handles legacy formats: plain strings "A-B" and {key, amount} objects.
+// Normalize all settlement records to {fromId, toId, amount, paidAt}
+// Handles every historical format we've ever stored
 function normSettlements(){
   return (db.settlements||[]).map(s=>{
     if(typeof s==='string'){
-      var pts=s.split('-');
-      return {fromId:pts[0], toId:pts.slice(1).join('-'), amount:null, paidAt:null};
+      var p=s.split('-');
+      return {fromId:p[0], toId:p.slice(1).join('-'), amount:null, paidAt:null};
     }
     if(s.key&&s.fromId===undefined){
-      // old {key, amount, paidAt} format
       var kp=s.key.split('-');
-      return {fromId:kp[0], toId:kp.slice(1).join('-'), amount:s.amount, paidAt:s.paidAt};
+      return {fromId:kp[0], toId:kp.slice(1).join('-'), amount:s.amount||0, paidAt:s.paidAt||null};
     }
-    return s; // already {fromId, toId, amount, paidAt}
+    return {fromId:s.fromId||'', toId:s.toId||'', amount:s.amount||0, paidAt:s.paidAt||null};
+  }).filter(s=>s.fromId&&s.toId&&s.amount>0);
+}
+
+// NET balances = expense balances adjusted for all cash payments made.
+// Each payment {fromId→toId, amount} means: fromId has paid out, toId has received.
+// fromId balance += amount (owes less / gets back more)
+// toId   balance -= amount (gets back less / owes more)
+function netBalances(){
+  var b=balances();
+  normSettlements().forEach(s=>{
+    b[s.fromId]=(b[s.fromId]||0)+s.amount;
+    b[s.toId]  =(b[s.toId]  ||0)-s.amount;
   });
+  return b;
 }
 
-// Sum all direct cash payments from one person to another.
-function paidBetween(fromId, toId){
-  return normSettlements()
-    .filter(s=>s.fromId===fromId&&s.toId===toId)
-    .reduce((sum,s)=>sum+(s.amount||0),0);
-}
-
-// Main settlements calc — generates debt pairs and applies direct payments.
-function settlements(){
-  var b=balances(),debt=[],cred=[],res=[];
-  Object.entries(b).forEach(([id,v])=>{
+// Compute minimum transfers to settle net positions.
+// Returns [{from, to, amount}] — remaining debts after all payments.
+function minTransfers(bals){
+  var debt=[],cred=[];
+  Object.entries(bals).forEach(([id,v])=>{
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
-  // Sort for stable key generation
   debt.sort((a,z)=>a.id.localeCompare(z.id));
   cred.sort((a,z)=>a.id.localeCompare(z.id));
-  var i=0,j=0;
+  var res=[], i=0, j=0;
   while(i<debt.length&&j<cred.length){
-    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
-    var paid=paidBetween(d.id,c.id);
-    // Subtract any reverse payment too (creditor may have paid debtor)
-    var reversePaid=paidBetween(c.id,d.id);
-    var netAmt=Math.max(0,amt-paid+reversePaid);
-    // Collect all payment entries between this pair for display
-    var payments=normSettlements().filter(s=>
-      (s.fromId===d.id&&s.toId===c.id)||(s.fromId===c.id&&s.toId===d.id)
-    ).map(s=>({...s, isReverse:s.fromId===c.id}));
-    var remaining=Math.max(0,amt-paid);
-    res.push({
-      from:d.id, to:c.id, amount:amt,
-      key:d.id+'-'+c.id, // kept for UI compatibility
-      payments: normSettlements().filter(s=>s.fromId===d.id&&s.toId===c.id),
-      totalPaid:paid,
-      remaining,
-      fullyPaid: remaining<0.01
-    });
+    var d=debt[i], c=cred[j], amt=Math.min(d.a,c.a);
+    if(amt>0.01) res.push({from:d.id, to:c.id, amount:amt});
     d.a-=amt; c.a-=amt;
     if(d.a<0.01)i++; if(c.a<0.01)j++;
   }
   return res;
 }
 
-// Current Balances — derives from settlements() so always consistent with "Payments to Make".
-function settledBalances(){
-  var sb={};
-  db.friends.forEach(f=>sb[f.id]=0);
-  settlements().forEach(s=>{
-    sb[s.from]=(sb[s.from]||0)-s.remaining;
-    sb[s.to]  =(sb[s.to]  ||0)+s.remaining;
+// Main settlements() for the Settle Up tab UI.
+// "amount" = original debt from expenses alone (for context).
+// "remaining" = what's left after all payments (from net balances).
+function settlements(){
+  var rawB=balances(), netB=netBalances();
+  var rawDebt=[],rawCred=[];
+  Object.entries(rawB).forEach(([id,v])=>{
+    if(v<-0.01)rawDebt.push({id,a:-v});
+    else if(v>0.01)rawCred.push({id,a:v});
   });
+  rawDebt.sort((a,z)=>a.id.localeCompare(z.id));
+  rawCred.sort((a,z)=>a.id.localeCompare(z.id));
+  // Build original debt pairs (for showing "original amount" in UI)
+  var origPairs=[];
+  var di=rawDebt.map(x=>({...x})), ci=rawCred.map(x=>({...x}));
+  var ii=0, jj=0;
+  while(ii<di.length&&jj<ci.length){
+    var d=di[ii], c=ci[jj], amt=Math.min(d.a,c.a);
+    origPairs.push({from:d.id, to:c.id, origAmt:amt});
+    d.a-=amt; c.a-=amt;
+    if(d.a<0.01)ii++; if(c.a<0.01)jj++;
+  }
+  // Compute remaining transfers from net balances
+  var remaining=minTransfers(netB);
+  var pmts=normSettlements();
+  // Build result: for each remaining debt, find matching original pair for context
+  var res=remaining.map(r=>{
+    var orig=origPairs.find(p=>p.from===r.from&&p.to===r.to);
+    var paid=pmts.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
+    return {
+      from:r.from, to:r.to,
+      amount: orig?orig.origAmt:r.amount, // original owed (for display)
+      remaining: r.amount,
+      totalPaid: paid,
+      payments: pmts.filter(p=>p.fromId===r.from&&p.toId===r.to),
+      fullyPaid: false,
+      key:r.from+'-'+r.to
+    };
+  });
+  // Add fully-settled pairs that no longer appear in remaining transfers
+  origPairs.forEach(op=>{
+    if(!res.find(r=>r.from===op.from&&r.to===op.to)){
+      var paid=pmts.filter(p=>p.fromId===op.from&&p.toId===op.to).reduce((s,p)=>s+p.amount,0);
+      if(paid>0.01){
+        res.push({
+          from:op.from, to:op.to,
+          amount:op.origAmt, remaining:0,
+          totalPaid:paid,
+          payments:pmts.filter(p=>p.fromId===op.from&&p.toId===op.to),
+          fullyPaid:true,
+          key:op.from+'-'+op.to
+        });
+      }
+    }
+  });
+  return res;
+}
+
+// Current Balances = remaining position from net balances
+function settledBalances(){
+  var nb=netBalances(), sb={};
+  db.friends.forEach(f=>sb[f.id]=0);
+  Object.entries(nb).forEach(([id,v])=>{ sb[id]=v; });
   return sb;
 }
 function gname(id){return(db.friends.find(f=>f.id===id)||{name:'?'}).name;}
@@ -833,56 +879,54 @@ function tripBalances(t){
   });
   return b;
 }
-// Normalize trip settlements — handles all 3 legacy formats + new format
+// Normalize trip settlements using the same logic as normSettlements
 function normTripSettlements(t){
   return (t.settlements||[]).map(s=>{
     if(typeof s==='string'){var p=s.split('-');return{fromId:p[0],toId:p.slice(1).join('-'),amount:null};}
-    if(s.key&&s.fromId===undefined){var kp=s.key.split('-');return{fromId:kp[0],toId:kp.slice(1).join('-'),amount:s.amount};}
-    return s;
-  });
-}
-function tripPaidBetween(t, fromId, toId){
-  return normTripSettlements(t).filter(s=>s.fromId===fromId&&s.toId===toId).reduce((sum,s)=>sum+(s.amount||0),0);
+    if(s.key&&s.fromId===undefined){var kp=s.key.split('-');return{fromId:kp[0],toId:kp.slice(1).join('-'),amount:s.amount||0};}
+    return{fromId:s.fromId||'',toId:s.toId||'',amount:s.amount||0};
+  }).filter(s=>s.fromId&&s.toId&&s.amount>0);
 }
 
-// For a given person in a story, compute remaining OWE and GET BACK
-function tripPersonalBalance(t, friendId){
-  var b=tripBalances(t),debt=[],cred=[];
-  Object.entries(b).forEach(([id,v])=>{
-    if(v<-0.01)debt.push({id,a:-v});
-    else if(v>0.01)cred.push({id,a:v});
+function tripNetBalances(t){
+  var b=tripBalances(t);
+  normTripSettlements(t).forEach(s=>{
+    b[s.fromId]=(b[s.fromId]||0)+s.amount;
+    b[s.toId]  =(b[s.toId]  ||0)-s.amount;
   });
-  debt.sort((a,z)=>a.id.localeCompare(z.id));
-  cred.sort((a,z)=>a.id.localeCompare(z.id));
-  var owes=0, getsBack=0, i=0, j=0;
-  while(i<debt.length&&j<cred.length){
-    var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
-    var paid=tripPaidBetween(t,d.id,c.id);
-    var remaining=Math.max(0,amt-paid);
-    if(d.id===friendId) owes+=remaining;
-    if(c.id===friendId) getsBack+=remaining;
-    d.a-=amt; c.a-=amt;
-    if(d.a<0.01)i++; if(c.a<0.01)j++;
-  }
-  return {owes, getsBack};
+  return b;
 }
-function tripSettlementStatus(t){
-  var b=tripBalances(t),debt=[],cred=[];
-  Object.entries(b).forEach(([id,v])=>{
+
+// Remaining owe/get-back for one person in a story
+function tripPersonalBalance(t, friendId){
+  var nb=tripNetBalances(t);
+  var owes=0, getsBack=0;
+  // Run minTransfers on the net balances to get remaining transfers
+  var debt=[],cred=[];
+  Object.entries(nb).forEach(([id,v])=>{
     if(v<-0.01)debt.push({id,a:-v});
     else if(v>0.01)cred.push({id,a:v});
   });
   debt.sort((a,z)=>a.id.localeCompare(z.id));
   cred.sort((a,z)=>a.id.localeCompare(z.id));
-  var i=0,j=0,pending=0;
+  var i=0,j=0;
   while(i<debt.length&&j<cred.length){
     var d=debt[i],c=cred[j],amt=Math.min(d.a,c.a);
-    var paid=tripPaidBetween(t,d.id,c.id);
-    pending+=Math.max(0,amt-paid);
+    if(d.id===friendId) owes+=amt;
+    if(c.id===friendId) getsBack+=amt;
     d.a-=amt;c.a-=amt;
     if(d.a<0.01)i++;if(c.a<0.01)j++;
   }
-  return pending;
+  return {owes, getsBack};
+}
+
+// Total still-pending settlement amount for a story
+function tripSettlementStatus(t){
+  var nb=tripNetBalances(t);
+  var debt=[];
+  Object.entries(nb).forEach(([id,v])=>{if(v<-0.01)debt.push(-v);});
+  // pending = sum of remaining debts (= sum of remaining credits, same value)
+  return debt.reduce((s,v)=>s+v,0);
 }
 
 // ============ EXPENSE ACTIONS ============
@@ -1583,76 +1627,37 @@ function tabSet(bal,sets){
             <div style="font-weight:900;font-size:17px;color:${partial?'#d97706':'#16a34a'}">₹${Math.round(s.remaining)}</div>
             ${partial?`<div style="font-size:10px;color:#9ca3af">of ₹${Math.round(s.amount)}</div>`:''}
           </div>
-        </div>`;
-      // Payment history entries for this pair (partial payments so far)
-      if(s.payments.length){
-        html+=`<div style="margin-bottom:8px">`;
-        var normAll=normSettlements();
-        s.payments.forEach((p)=>{
-          var globalIdx=normAll.findIndex(x=>x===p||(x.fromId===p.fromId&&x.toId===p.toId&&x.amount===p.amount&&x.paidAt===p.paidAt));
-          var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
-          html+=`<div class="pay-entry">
-            <span style="font-size:16px">💸</span>
-            <div style="flex:1">
-              <div style="font-weight:700;color:#15803d">₹${Math.round(p.amount||0)} paid</div>
-              <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
-            </div>
-            <button onclick="doRemovePayment(${globalIdx})" style="background:none;color:#ef4444;font-size:13px;padding:2px 5px" title="Remove this payment">✕</button>
-          </div>`;
-        });
-        html+=`</div>`;
-      }
-      html+=`<div class="sbtns">
-        <a href="${upi(gname(s.to),s.remaining)}" class="btn purple sm" style="flex:1">💳 Pay UPI</a>
-        <button class="btn green sm" onclick="openMarkPaid('${s.from}','${s.to}',${s.remaining})" style="flex:1">✅ Mark Paid</button>
-      </div></div>`;
+        </div>
+        <div class="sbtns">
+          <a href="${upi(gname(s.to),s.remaining)}" class="btn purple sm" style="flex:1">💳 Pay UPI</a>
+          <button class="btn green sm" onclick="openMarkPaid('${s.from}','${s.to}',${s.remaining})" style="flex:1">✅ Mark Paid</button>
+        </div>
+      </div>`;
       return html;
     }).join('');
   }
   h+=`</div>`;
 
-  // ---- COMPLETED PAYMENTS HISTORY ----
-  var allPayments=normSettlements();
-  if(allPayments.length||done.length){
-    // Gather all debt pairs that have any payments (pending or done)
-    var allSets=[...pending,...done];
-    var histSets=allSets.filter(s=>s.payments.length>0);
-    if(done.length||histSets.length){
-      h+=`<div style="background:white;border-radius:12px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb">
-        <div style="font-size:13px;font-weight:900;color:#374151;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-          🕐 Payment History
-          <span style="background:#f0fdf4;color:#16a34a;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${allPayments.length} payment${allPayments.length!==1?'s':''}</span>
-        </div>`;
-      allSets.filter(s=>s.payments.length>0).forEach(s=>{
-        var isFullyPaid=s.fullyPaid;
-        var normAll=normSettlements();
-        h+=`<div style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:800;color:#374151;margin-bottom:5px;display:flex;align-items:center;gap:6px">
-            ${isFullyPaid?'<span style="background:#dcfce7;color:#16a34a;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">✓ Fully Settled</span>':'<span style="background:#fef9c3;color:#92400e;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800">⚡ Partial</span>'}
-            ${gname(s.from)} → ${gname(s.to)}
-            <span style="color:#9ca3af;font-weight:600;font-size:11px">(Total: ₹${Math.round(s.amount)})</span>
-          </div>`;
-        s.payments.forEach((p)=>{
-          var globalIdx=normAll.findIndex(x=>x===p||(x.fromId===p.fromId&&x.toId===p.toId&&x.amount===p.amount&&x.paidAt===p.paidAt));
-          var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
-          h+=`<div class="pay-entry ${isFullyPaid?'':'partial'}">
-            <span style="font-size:15px">💸</span>
-            <div style="flex:1">
-              <div style="font-weight:700;color:${isFullyPaid?'#15803d':'#92400e'}">₹${Math.round(p.amount||0)} paid</div>
-              <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
-            </div>
-            <button onclick="doRemovePayment(${globalIdx})" style="background:#fef9c3;color:#92400e;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700" title="Undo this payment">↩️ Undo</button>
-          </div>`;
-        });
-        if(isFullyPaid&&s.payments.length>0){
-          var lastP=s.payments[s.payments.length-1];
-          var lastIdx=normAll.findIndex(x=>x===lastP||(x.fromId===lastP.fromId&&x.toId===lastP.toId&&x.amount===lastP.amount&&x.paidAt===lastP.paidAt));
-          h+=`<button class="btn sm" style="background:#fef9c3;color:#92400e;width:100%;margin-top:4px;font-weight:700" onclick="doRemovePayment(${lastIdx})">↩️ Re-enable Last Payment</button>`;
-        }
-        h+=`</div>`;
-      });
-      h+=`</div>`;
-    }
+  // ---- PAYMENT HISTORY (flat log — all cash transfers ever recorded) ----
+  var allPmts=normSettlements();
+  if(allPmts.length){
+    h+=`<div style="background:white;border-radius:12px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid #e5e7eb">
+      <div style="font-size:13px;font-weight:900;color:#374151;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+        🕐 Payment History
+        <span style="background:#f0fdf4;color:#16a34a;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700">${allPmts.length} payment${allPmts.length!==1?'s':''}</span>
+      </div>`;
+    allPmts.forEach((p,gi)=>{
+      var dt=p.paidAt?new Date(p.paidAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—';
+      h+=`<div class="pay-entry">
+        <span style="font-size:15px">💸</span>
+        <div style="flex:1">
+          <div style="font-weight:700;color:#15803d;font-size:12px">${gname(p.fromId)} → ${gname(p.toId)}: ₹${Math.round(p.amount)}</div>
+          <div style="color:#6b7280;font-size:10px">🕐 ${dt}</div>
+        </div>
+        <button onclick="doRemovePayment(${gi})" style="background:#fef9c3;color:#92400e;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700">↩️ Undo</button>
+      </div>`;
+    });
+    h+=`</div>`;
   }
 
   return h;
@@ -1704,33 +1709,44 @@ function generateCSV(t){
   });
   rows.push([]);
 
-  // ── Balances ──
+  // ── Balances (net after payments) ──
   rows.push(['MEMBER BALANCES']);
   rows.push(['Member','Balance (₹)','Status']);
+  var nb=tripNetBalances(t);
   t.friends.forEach(f=>{
-    var v=b[f.id]||0;
+    var v=nb[f.id]||0;
     rows.push([f.name, Math.round(Math.abs(v)), v>0.01?'Gets back ₹'+Math.round(v):v<-0.01?'Owes ₹'+Math.round(-v):'Settled ✓']);
   });
   rows.push([]);
 
-  // ── Settle Up ──
+  // ── Settle Up (remaining transfers from net balances) ──
   rows.push(['SETTLE UP PAYMENTS']);
-  rows.push(['From','To','Amount (₹)','Status']);
-  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
-  var bCopy=tripBalances(t),debt=[],cred=[];
-  Object.entries(bCopy).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});
-  var ii=0,jj=0;
-  while(ii<debt.length&&jj<cred.length){
-    var d=debt[ii],c=cred[jj],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-    var fromName=(t.friends.find(f=>f.id===d.id)||{name:d.id}).name;
-    var toName=(t.friends.find(f=>f.id===c.id)||{name:c.id}).name;
-    var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
-    var rem=Math.max(0,amt-paid);
-    var status=rem<0.01?'Fully Settled':paid>0?'Partial (₹'+Math.round(paid)+' paid, ₹'+Math.round(rem)+' remaining)':'Pending';
-    rows.push([fromName, toName, Math.round(amt), status]);
-    d.a-=amt; c.a-=amt;
-    if(d.a<0.01)ii++; if(c.a<0.01)jj++;
-  }
+  rows.push(['From','To','Remaining (₹)','Total Paid (₹)','Status']);
+  var remaining2=minTransfers(tripNetBalances(t));
+  var rawB2=tripBalances(t), rawDebt2=[], rawCred2=[];
+  Object.entries(rawB2).forEach(([id,v])=>{if(v<-0.01)rawDebt2.push({id,a:-v});else if(v>0.01)rawCred2.push({id,a:v});});
+  rawDebt2.sort((a,z)=>a.id.localeCompare(z.id)); rawCred2.sort((a,z)=>a.id.localeCompare(z.id));
+  var ts2=normTripSettlements(t);
+  // Show remaining
+  remaining2.forEach(r=>{
+    var fn=(t.friends.find(f=>f.id===r.from)||{name:r.from}).name;
+    var tn=(t.friends.find(f=>f.id===r.to)||{name:r.to}).name;
+    var paid2=ts2.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
+    rows.push([fn,tn,Math.round(r.amount),Math.round(paid2),'Pending']);
+  });
+  // Show fully settled (in normTripSettlements but not in remaining)
+  var allFromTo=new Set(remaining2.map(r=>r.from+'-'+r.to));
+  var seenPairs=new Set();
+  ts2.forEach(p=>{
+    var pk=p.fromId+'-'+p.toId;
+    if(!allFromTo.has(pk)&&!seenPairs.has(pk)){
+      seenPairs.add(pk);
+      var fn=(t.friends.find(f=>f.id===p.fromId)||{name:p.fromId}).name;
+      var tn=(t.friends.find(f=>f.id===p.toId)||{name:p.toId}).name;
+      var paid3=ts2.filter(x=>x.fromId===p.fromId&&x.toId===p.toId).reduce((s,x)=>s+x.amount,0);
+      rows.push([fn,tn,0,Math.round(paid3),'Fully Settled']);
+    }
+  });
   rows.push([]);
   rows.push(['Generated by Expense & Settle', '', new Date().toLocaleString('en-IN')]);
 
@@ -1750,23 +1766,20 @@ function generatePlainText(t){
   if(budget>0) lines.push('Budget: ₹'+Math.round(budget).toLocaleString()+' ('+(total>budget?'Over by ₹'+Math.round(total-budget).toLocaleString():'₹'+Math.round(budget-total).toLocaleString()+' remaining')+')');
   lines.push('Pending Settlement: ₹'+Math.round(pending).toLocaleString());
   lines.push('');
-  // Settle up summary — show pending/total per pair
-  var sArr=(t.settlements||[]).map(s=>typeof s==='string'?{key:s,amount:null}:s);
-  var b2=tripBalances(t),debt=[],cred=[];
-  Object.entries(b2).forEach(([id,v])=>{if(v<-0.01)debt.push({id,a:-v});else if(v>0.01)cred.push({id,a:v});});
-  if(debt.length||cred.length){
+  // Settle up — remaining transfers from net balances
+  var remaining3=minTransfers(tripNetBalances(t));
+  var ts3=normTripSettlements(t);
+  if(remaining3.length){
     lines.push('Settle Up:');
-    var ii=0,jj=0;
-    while(ii<debt.length&&jj<cred.length){
-      var d=debt[ii],c=cred[jj],amt=Math.min(d.a,c.a),key=d.id+'-'+c.id;
-      var fn=(t.friends.find(f=>f.id===d.id)||{name:d.id}).name;
-      var tn=(t.friends.find(f=>f.id===c.id)||{name:c.id}).name;
-      var paid=sArr.filter(s=>s.key===key).reduce((sum,s)=>sum+(s.amount!=null?s.amount:amt),0);
-      var rem=Math.max(0,amt-paid);
-      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(rem).toLocaleString()+' / ₹'+Math.round(amt).toLocaleString());
-      d.a-=amt; c.a-=amt;
-      if(d.a<0.01)ii++; if(c.a<0.01)jj++;
-    }
+    remaining3.forEach(r=>{
+      var fn=(t.friends.find(f=>f.id===r.from)||{name:r.from}).name;
+      var tn=(t.friends.find(f=>f.id===r.to)||{name:r.to}).name;
+      var origB=tripBalances(t);
+      var origAmt=r.amount; // remaining IS the amount after payments
+      var paid4=ts3.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
+      var total4=r.amount+paid4; // original was remaining+paid
+      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString());
+    });
   }
   return lines.join('\n');
 }
