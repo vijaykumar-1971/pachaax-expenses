@@ -1759,27 +1759,32 @@ function generatePlainText(t){
   var pending=tripSettlementStatus(t);
   var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
   var lines=[];
-  lines.push('Story: '+t.name);
-  if(t.meta&&t.meta.purpose) lines.push('Purpose: '+t.meta.purpose);
-  if(dateStr) lines.push('Date: '+dateStr);
-  lines.push('Total Spent: ₹'+Math.round(total).toLocaleString());
-  if(budget>0) lines.push('Budget: ₹'+Math.round(budget).toLocaleString()+' ('+(total>budget?'Over by ₹'+Math.round(total-budget).toLocaleString():'₹'+Math.round(budget-total).toLocaleString()+' remaining')+')');
-  lines.push('Pending Settlement: ₹'+Math.round(pending).toLocaleString());
+
+  // Header
+  lines.push('📖 '+t.name);
+  if(dateStr) lines.push('📅 '+dateStr);
   lines.push('');
-  // Settle up — one line per payment with inline UPI link
-  var remaining3=minTransfers(tripNetBalances(t));
-  var ts3=normTripSettlements(t);
-  if(remaining3.length){
-    lines.push('Settle Up:');
-    remaining3.forEach(r=>{
+
+  // Summary row
+  var summary='Spent: ₹'+Math.round(total).toLocaleString();
+  if(budget>0) summary+=' | Budget: ₹'+Math.round(budget).toLocaleString();
+  summary+=' | Pending: ₹'+Math.round(pending).toLocaleString();
+  summary+=' | Expenses: '+t.expenses.length;
+  lines.push(summary);
+
+  // Settle Up
+  var remaining=minTransfers(tripNetBalances(t));
+  if(remaining.length){
+    lines.push('');
+    lines.push('💳 SETTLE UP');
+    remaining.forEach(r=>{
       var fn=(t.friends.find(f=>f.id===r.from)||{name:r.from}).name;
       var tn=(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
-      var paid4=ts3.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
-      var total4=r.amount+paid4;
       var upiUrl='upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount);
-      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString()+'  Pay UPI: '+upiUrl);
+      lines.push(fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+'  Pay UPI: '+upiUrl);
     });
   }
+
   return lines.join('\n');
 }
 
