@@ -1776,8 +1776,8 @@ function generatePlainText(t){
       var tn=(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
       var paid4=ts3.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
       var total4=r.amount+paid4;
-      var upiUrl='upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount)+'&cu=INR&tn='+encodeURIComponent(t.name||'Settle');
-      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString()+'  💳 '+upiUrl);
+      var upiUrl='upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount);
+      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString()+'  Pay UPI: '+upiUrl);
     });
   }
   return lines.join('\n');
