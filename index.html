@@ -1766,7 +1766,7 @@ function generatePlainText(t){
   if(budget>0) lines.push('Budget: ₹'+Math.round(budget).toLocaleString()+' ('+(total>budget?'Over by ₹'+Math.round(total-budget).toLocaleString():'₹'+Math.round(budget-total).toLocaleString()+' remaining')+')');
   lines.push('Pending Settlement: ₹'+Math.round(pending).toLocaleString());
   lines.push('');
-  // Settle up — remaining transfers from net balances, each with a tappable UPI link
+  // Settle up — one line per payment with inline UPI link
   var remaining3=minTransfers(tripNetBalances(t));
   var ts3=normTripSettlements(t);
   if(remaining3.length){
@@ -1776,9 +1776,8 @@ function generatePlainText(t){
       var tn=(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
       var paid4=ts3.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
       var total4=r.amount+paid4;
-      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString());
-      // UPI deep link — tappable in WhatsApp, Telegram, iMessage on Android
-      lines.push('  💳 Pay: upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount)+'&cu=INR&tn='+encodeURIComponent(t.name||'Settle'));
+      var upiUrl='upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount)+'&cu=INR&tn='+encodeURIComponent(t.name||'Settle');
+      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(total4).toLocaleString()+'  💳 '+upiUrl);
     });
   }
   return lines.join('\n');
