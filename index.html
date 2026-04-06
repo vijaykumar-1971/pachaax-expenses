@@ -666,7 +666,7 @@ async function loadDashboard(){
           expenses:    (val&&val.expenses)    ||[],
           settlements: (val&&val.settlements) ||[]
         })).filter(t=>canSeeTrip(t.meta));
-        dashData=list.sort((a,b)=>b.date.localeCompare(a.date));
+        dashData=list.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
       }
     }
   }catch(e){dashData=[];}
@@ -1765,19 +1765,18 @@ function generatePlainText(t){
   if(dateStr) lines.push('📅 '+dateStr);
   lines.push('Spent: ₹'+Math.round(total).toLocaleString()+' | Pending: ₹'+Math.round(pending).toLocaleString()+' | Expenses: '+t.expenses.length);
 
-  // Settle Up
-  var remaining=minTransfers(tripNetBalances(t));
+  // Settle Up — skip zero-amount pairs
+  var remaining=minTransfers(tripNetBalances(t)).filter(r=>r.amount>0.01);
   if(remaining.length){
     lines.push('');
-    // One common Pay UPI deep link after the heading (opens UPI app to enter amount)
-    lines.push('💳 SETTLE UP  upi://pay');
+    lines.push('💳 SETTLE UP');
     remaining.forEach(r=>{
       var fn=(t.friends.find(f=>f.id===r.from)||{name:r.from}).name;
       var tn=(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
       var paid=ts.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
       var totalOwed=r.amount+paid;
-      // Format: Ravi → Priya: ₹430 / ₹6,000
-      lines.push(fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(totalOwed).toLocaleString());
+      var upiUrl='upi://pay?pn='+encodeURIComponent(tn)+'&am='+Math.round(r.amount)+'&cu=INR';
+      lines.push(fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(totalOwed).toLocaleString()+'  Pay UPI: '+upiUrl);
     });
   }
 
@@ -1833,22 +1832,20 @@ function mShare(){
   var total=t.expenses.reduce((s,e)=>s+e.amount,0);
   var pending=tripSettlementStatus(t);
   var dateStr=t.date?new Date(t.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
-  var remaining=minTransfers(tripNetBalances(t));
+  var remaining=minTransfers(tripNetBalances(t)).filter(r=>r.amount>0.01);
   var ts=normTripSettlements(t);
 
   var settleHtml='';
   if(remaining.length){
     // One common Pay UPI link next to "Settle Up" heading (user enters amount in UPI app)
     settleHtml=`<div style="margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:11px;font-weight:800;color:#374151;text-transform:uppercase">💳 Settle Up</div>
-        <a href="upi://pay" class="btn purple sm" style="font-size:10px;text-decoration:none;padding:5px 10px" onclick="event.stopPropagation()">💳 Pay UPI</a>
-      </div>`;
+      <div style="font-size:11px;font-weight:800;color:#374151;text-transform:uppercase;margin-bottom:8px">💳 Settle Up</div>`;
     remaining.forEach(r=>{
       var fromName=(t.friends.find(f=>f.id===r.from)||{name:r.from}).name;
       var toName  =(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
       var paid=ts.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
       var totalOwed=r.amount+paid;
+      var upiLink='upi://pay?pn='+encodeURIComponent(toName)+'&am='+Math.round(r.amount)+'&cu=INR';
       settleHtml+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:5px;border:1px solid #e5e7eb">
         <div style="flex:1;min-width:0">
           <div style="font-size:11px;font-weight:700;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fromName} → ${toName}</div>
@@ -1858,6 +1855,7 @@ function mShare(){
             ${paid>0?`<span style="color:#16a34a;font-size:10px"> (₹${Math.round(paid).toLocaleString()} paid)</span>`:''}
           </div>
         </div>
+        <a href="${upiLink}" class="btn purple sm" style="font-size:10px;text-decoration:none;padding:5px 10px;flex-shrink:0" onclick="event.stopPropagation()">💳 Pay UPI</a>
       </div>`;
     });
     settleHtml+=`</div>`;
