@@ -1764,7 +1764,6 @@ function generatePlainText(t){
   if(dateStr) lines.push('*📅 '+dateStr+'*');
   lines.push('Spent: ₹'+Math.round(total).toLocaleString()+' | Pending: ₹'+Math.round(pending).toLocaleString()+' | Expenses: '+t.expenses.length);
 
-  var remaining=minTransfers(tripNetBalances(t)).filter(r=>r.amount>0.01);
   if(remaining.length){
     lines.push('');
     lines.push('💳 Settle Up');
@@ -1773,10 +1772,10 @@ function generatePlainText(t){
       var tn=(t.friends.find(f=>f.id===r.to  )||{name:r.to  }).name;
       var paid=ts.filter(p=>p.fromId===r.from&&p.toId===r.to).reduce((s,p)=>s+p.amount,0);
       var totalOwed=r.amount+paid;
-      lines.push('* '+fn+' → '+tn+' ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(totalOwed).toLocaleString());
+      lines.push('• '+fn+' → '+tn+': ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(totalOwed).toLocaleString());
     });
     lines.push('');
-    lines.push('Pay UPI: upi://pay');
+    lines.push('(Open the attached file to Pay via UPI)');
   }
 
   return lines.join('\n');
@@ -1865,17 +1864,31 @@ async function doShareText(){
   var t=dashData.find(x=>x.id===_shareStoryId);
   if(!t) return;
   var txt=generatePlainText(t);
-  var title=t.name+' – Settle Up';
+  var html=generateSharePage(t);
+  var fname=(t.name||'settle').replace(/[^a-z0-9]/gi,'_')+'_settle.html';
+  var htmlBlob=new Blob([html],{type:'text/html'});
+  var htmlFile=new File([htmlBlob],fname,{type:'text/html'});
+
+  // Try sharing file + text together — WhatsApp shows the text and attaches the file
+  // Recipient opens the file in browser → tappable Pay UPI buttons
   if(navigator.share){
-    try{ await navigator.share({title, text:txt}); return; }
+    if(navigator.canShare&&navigator.canShare({files:[htmlFile]})){
+      try{
+        await navigator.share({title:t.name+' – Settle Up', text:txt, files:[htmlFile]});
+        return;
+      }catch(e){ if(e.name==='AbortError') return; }
+    }
+    // Fall back to text-only share
+    try{ await navigator.share({title:t.name+' – Settle Up', text:txt}); return; }
     catch(e){ if(e.name==='AbortError') return; }
   }
-  try{
-    await navigator.clipboard.writeText(txt);
-    toast('📋 Copied! Paste into WhatsApp, Outlook, etc.');
-  }catch(e){
-    var w=window.open('','_blank');
-    if(w){ w.document.write('<pre style="font:15px/1.7 monospace;padding:20px;white-space:pre-wrap;max-width:480px">'+txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</pre>'); w.document.close(); }
+
+  // Desktop: open the HTML page in a new tab
+  var url=URL.createObjectURL(htmlBlob);
+  var w=window.open(url,'_blank');
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  if(!w){
+    try{ await navigator.clipboard.writeText(txt); toast('📋 Copied!'); }catch(e){}
   }
 }
 
