@@ -1762,8 +1762,7 @@ function generatePlainText(t){
 
   lines.push('*📖 '+t.name+'*');
   if(dateStr) lines.push('*📅 '+dateStr+'*');
-  lines.push('Spent                Pending            Expenses');
-  lines.push('₹'+Math.round(total).toLocaleString()+'            ₹'+Math.round(pending).toLocaleString()+'              '+t.expenses.length);
+  lines.push('Spent: ₹'+Math.round(total).toLocaleString()+' | Pending: ₹'+Math.round(pending).toLocaleString()+' | Expenses: '+t.expenses.length);
 
   var remaining=minTransfers(tripNetBalances(t)).filter(r=>r.amount>0.01);
   if(remaining.length){
@@ -1777,7 +1776,7 @@ function generatePlainText(t){
       lines.push('* '+fn+' → '+tn+' ₹'+Math.round(r.amount).toLocaleString()+' / ₹'+Math.round(totalOwed).toLocaleString());
     });
     lines.push('');
-    lines.push('Pay UPI `upi://pay`');
+    lines.push('Pay UPI: upi://pay');
   }
 
   return lines.join('\n');
