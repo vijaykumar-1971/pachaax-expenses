@@ -1310,7 +1310,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():modal==='profile'?mProfile():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():modal==='profile'?mProfile():modal==='setbudget'?mSetBudget():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -1470,12 +1470,23 @@ function tabExp(bal){
   if(!db.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn primary" onclick="tab='friends';render()">Go to Friends</button></div>`;
   if(!db.expenses.length) return h+`<div class="empty"><p>💸 No expenses yet!</p></div>`;
 
+  var totalPlanned=Object.values(db.meta.categoryBudgets||{}).reduce((s,v)=>s+(parseFloat(v)||0),0);
+  var overAll=totalPlanned>0&&total>totalPlanned;
   h+=`<div style="background:linear-gradient(90deg,#d97706,#ea580c);color:white;border-radius:12px;padding:12px 14px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div style="font-size:11px;font-weight:700;opacity:0.85">TOTAL SPENT</div>
       <div style="font-size:11px;opacity:0.7">${db.expenses.length} expense${db.expenses.length!==1?'s':''} · ${db.friends.length} people</div></div>
       <div style="font-size:24px;font-weight:900">₹${Math.round(total).toLocaleString()}</div>
     </div>
+    ${totalPlanned>0?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25)">
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:5px">
+        <span>Budget: ₹${Math.round(totalPlanned).toLocaleString()}</span>
+        <span style="color:${overAll?'#fca5a5':'#bbf7d0'}">${overAll?'⚠️ Over by ₹'+Math.round(total-totalPlanned).toLocaleString():'₹'+Math.round(totalPlanned-total).toLocaleString()+' remaining'}</span>
+      </div>
+      <div style="background:rgba(255,255,255,0.25);border-radius:20px;height:6px;overflow:hidden">
+        <div style="background:${overAll?'#ef4444':'#86efac'};height:100%;width:${Math.min(100,Math.round(total/totalPlanned*100))}%;border-radius:20px;transition:width 0.3s"></div>
+      </div>
+    </div>`:''}
   </div>`;
   h+=db.expenses.map(e=>{
     var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
@@ -1540,28 +1551,27 @@ function tabBudget(){
     </div>`:''}
   </div>`;
 
-  // Per-category rows
+  // Per-category grid
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">`;
   h+=cats.map(cat=>{
     var planned=parseFloat(catBudgets[cat])||0;
     var actual=actuals[cat]||0;
     var over=planned>0&&actual>planned;
     var pct=planned>0?Math.min(100,Math.round(actual/planned*100)):0;
-    return `<div class="card" style="${over?'border-color:#fca5a5;background:#fef2f2':''}">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🏷️ ${cat}</span>
-        <div style="flex:1"></div>
-        ${canEdit?`<button class="btn sm" style="background:#f3f4f6;color:#374151;font-size:11px;padding:4px 10px" onclick="doSetCategoryBudget('${cat}')">✏️ Set Budget</button>`:''}
+    return `<div style="background:white;border-radius:12px;padding:12px;box-shadow:0 2px 6px rgba(0,0,0,0.07);border:2px solid ${over?'#fca5a5':'#e5e7eb'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;display:inline-block;max-width:calc(100% - 30px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏷️ ${cat}</span>
+        ${canEdit?`<button onclick="openSetBudget('${cat}')" style="background:none;color:#9ca3af;font-size:14px;padding:0;line-height:1" title="Set budget">✏️</button>`:''}
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
-        <div><span style="color:#6b7280">Planned: </span><strong>${planned>0?'₹'+Math.round(planned).toLocaleString():'—'}</strong></div>
-        <div><span style="color:#6b7280">Actual: </span><strong style="color:${over?'#ef4444':actual>0?'#d97706':'#9ca3af'}">₹${Math.round(actual).toLocaleString()}</strong></div>
-        ${planned>0?`<div style="color:${over?'#ef4444':'#16a34a'};font-weight:700">${over?'⚠️ Over ₹'+Math.round(actual-planned).toLocaleString():'₹'+Math.round(planned-actual).toLocaleString()+' left'}</div>`:''}
+      <div style="font-weight:900;font-size:17px;color:${over?'#ef4444':actual>0?'#d97706':'#9ca3af'}">₹${Math.round(actual).toLocaleString()}</div>
+      <div style="font-size:10px;color:#9ca3af;margin-top:2px">of ${planned>0?'₹'+Math.round(planned).toLocaleString():'no budget'}</div>
+      ${planned>0?`<div style="margin-top:6px;background:#f3f4f6;border-radius:20px;height:5px;overflow:hidden">
+        <div style="background:${over?'#ef4444':'#d97706'};height:100%;width:${pct}%;border-radius:20px"></div>
       </div>
-      ${planned>0?`<div style="background:#f3f4f6;border-radius:20px;height:6px;overflow:hidden">
-        <div style="background:${over?'#ef4444':'#d97706'};height:100%;width:${pct}%;border-radius:20px;transition:width 0.3s"></div>
-      </div>`:''}
+      <div style="font-size:10px;font-weight:700;margin-top:3px;color:${over?'#ef4444':'#16a34a'}">${over?'⚠️ Over ₹'+Math.round(actual-planned).toLocaleString():'₹'+Math.round(planned-actual).toLocaleString()+' left'}</div>`:''}
     </div>`;
   }).join('');
+  h+=`</div>`;
 
   // Uncategorised
   if(uncatTotal>0.01){
@@ -1576,16 +1586,37 @@ function tabBudget(){
   return h;
 }
 
-async function doSetCategoryBudget(cat){
-  var current=(db.meta.categoryBudgets||{})[cat]||'';
-  var val=prompt('Set planned budget for "'+cat+'" (₹):', current);
-  if(val===null) return; // cancelled
+var _budgetCat='';
+function openSetBudget(cat){
+  _budgetCat=cat;
+  modal='setbudget';
+  render();
+  setTimeout(()=>{var el=document.getElementById('cat-budget-inp');if(el){el.focus();el.select();}},100);
+}
+async function doSetCategoryBudget(){
+  var val=(document.getElementById('cat-budget-inp')||{value:''}).value.trim();
   var num=parseFloat(val)||0;
   if(!db.meta.categoryBudgets) db.meta.categoryBudgets={};
-  db.meta.categoryBudgets[cat]=num;
+  db.meta.categoryBudgets[_budgetCat]=num;
   await fbSet(tripId+'/meta',db.meta);
-  toast('✅ Budget set for '+cat);
-  render();
+  toast('✅ Budget set for '+_budgetCat);
+  modal=null; render();
+}
+function mSetBudget(){
+  var current=(db.meta.categoryBudgets||{})[_budgetCat]||'';
+  return `<div class="overlay" onclick="modal=null;render()">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:320px">
+      <h3>✏️ Set Category Budget</h3>
+      <div style="background:#ede9fe;color:#6d28d9;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:700;margin-bottom:14px;display:inline-block">🏷️ ${_budgetCat}</div>
+      <span class="lbl">Planned Budget (₹)</span>
+      <input id="cat-budget-inp" class="f" type="number" inputmode="decimal" placeholder="e.g. 5000" value="${current}"
+        onkeydown="if(event.key==='Enter')doSetCategoryBudget()">
+      <div class="mbtns">
+        <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
+        <button class="btn primary" onclick="doSetCategoryBudget()">💾 Save</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 function tabFr(bal){
@@ -2047,7 +2078,8 @@ function mShare(){
           </div>
         </button>
         <button class="btn secondary" style="width:100%;text-align:left;padding:10px 12px;border-radius:10px;margin-bottom:7px;display:flex;align-items:center;gap:10px"
-          onclick="doShareTextMsg()">
+          id="share-text-btn"
+          onclick="(function(btn){var txt=btn.dataset.txt;if(navigator.share){navigator.share({title:btn.dataset.title,text:txt}).catch(function(){});return;}if(navigator.clipboard){navigator.clipboard.writeText(txt).then(function(){var t=document.getElementById('toast');t.textContent='📋 Copied!';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2800);});};})(this)">
           <span style="font-size:20px">💬</span>
           <div>
             <div style="font-weight:800;font-size:12px;color:#374151">Share as Text</div>
@@ -2067,6 +2099,11 @@ function mShare(){
       <button class="btn secondary sm" style="width:100%" onclick="modal=null;render()">Close</button>
     </div>
   </div>`;
+  // Inject share text into button's data attribute so onclick can use it synchronously
+  setTimeout(function(){
+    var btn=document.getElementById('share-text-btn');
+    if(btn){ var txt=generatePlainText(t); btn.dataset.txt=txt; btn.dataset.title=t.name+' – Settle Up'; }
+  },0);
 }
 
 function tabDashboard(){
