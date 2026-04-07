@@ -247,6 +247,7 @@ let dashLoaded    = false;
 var myGroups       = [];   // [{id, name, emails:[]}]
 var groupsLoaded   = false;
 var frSubTab       = 'members'; // 'members' | 'groups'
+var expSubTab      = 'list';    // 'list' | 'budget'
 var editGroupId    = null;
 var newGroupName   = '';
 var newGroupEmails = ''; // comma-separated
@@ -1032,7 +1033,6 @@ async function doReset(){
 async function doCreateTrip(){
   var n=(document.getElementById('itn')||{value:''}).value.trim();
   var dt=(document.getElementById('itd')||{value:''}).value;
-  var bg=parseFloat((document.getElementById('itbg')||{value:''}).value)||0;
   var pu=(document.getElementById('itpu')||{value:''}).value.trim();
   if(!n){toast('Enter a story name!');return;}
   tripId=n.toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'');
@@ -1041,7 +1041,7 @@ async function doCreateTrip(){
   db={friends:[creatorFriend],expenses:[],settlements:[],meta:{
     name:n, date:dt, created:new Date().toISOString(),
     createdBy:currentUser?currentUser.email:'', members:[],
-    budget:bg, purpose:pu
+    categoryBudgets:{}, purpose:pu
   }};
   modal=null; dashLoaded=false; tab='friends'; render();
   await fbSet(tripId, db);
@@ -1439,8 +1439,6 @@ function tripScreen(){
       <input id="itpu" class="f" type="text" placeholder="e.g. Family vacation, Team offsite">
       <span class="lbl">Story Start Date</span>
       <input id="itd" class="f" type="date" value="${today}">
-      <span class="lbl">Budget (₹)</span>
-      <input id="itbg" class="f" type="number" inputmode="decimal" placeholder="e.g. 50000">
       <button class="btn primary" onclick="doCreateTrip()" style="width:100%;padding:12px;font-size:14px;margin-top:2px">🚀 Start Story</button>
       ${trips.length?`<div style="margin-top:18px;font-weight:900;font-size:12px;color:#374151;margin-bottom:8px;text-transform:uppercase">📋 Your Stories</div>${list}`:''}
       ${!trips.length?`<p style="text-align:center;color:#9ca3af;font-size:11px;margin-top:12px">Loading your stories...</p>`:''}
@@ -1455,32 +1453,29 @@ function tripScreen(){
 function tabExp(bal){
   var total=db.expenses.reduce((s,e)=>s+e.amount,0);
   var owner=isOwner(db.meta);
-  var meta=db.meta||{};
-  var h=`<div class="shd"><h2>All Expenses</h2>
+  var h=`<div class="shd"><h2>Expenses</h2>
     <div style="display:flex;gap:6px">
-      ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this story">🗑️ Story</button>`:''}
+      ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this story">🗑️</button>`:''}
       <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
     </div>
+  </div>
+  <div class="fr-subtabs">
+    <button class="fr-subtab ${expSubTab==='list'?'on':''}" onclick="expSubTab='list';render()">📋 All Expenses</button>
+    <button class="fr-subtab ${expSubTab==='budget'?'on':''}" onclick="expSubTab='budget';render()">📊 Budget</button>
   </div>`;
+
+  if(expSubTab==='budget') return h+tabBudget();
+
+  // ---- EXPENSES LIST ----
   if(!db.friends.length) return h+`<div class="empty"><p>👥 Add friends first!</p><button class="btn primary" onclick="tab='friends';render()">Go to Friends</button></div>`;
   if(!db.expenses.length) return h+`<div class="empty"><p>💸 No expenses yet!</p></div>`;
-  var budget=parseFloat(meta.budget)||0;
-  var over=budget>0&&total>budget;
+
   h+=`<div style="background:linear-gradient(90deg,#d97706,#ea580c);color:white;border-radius:12px;padding:12px 14px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div style="font-size:11px;font-weight:700;opacity:0.85">TOTAL SPENT</div>
       <div style="font-size:11px;opacity:0.7">${db.expenses.length} expense${db.expenses.length!==1?'s':''} · ${db.friends.length} people</div></div>
       <div style="font-size:24px;font-weight:900">₹${Math.round(total).toLocaleString()}</div>
     </div>
-    ${budget>0?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25)">
-      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:5px">
-        <span>Budget: ₹${Math.round(budget).toLocaleString()}</span>
-        <span style="color:${over?'#fca5a5':'#bbf7d0'}">${over?'⚠️ Over by ₹'+Math.round(total-budget).toLocaleString():'₹'+Math.round(budget-total).toLocaleString()+' remaining'}</span>
-      </div>
-      <div style="background:rgba(255,255,255,0.25);border-radius:20px;height:6px;overflow:hidden">
-        <div style="background:${over?'#ef4444':'#86efac'};height:100%;width:${Math.min(100,Math.round(total/budget*100))}%;border-radius:20px;transition:width 0.3s"></div>
-      </div>
-    </div>`:''}
   </div>`;
   h+=db.expenses.map(e=>{
     var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
@@ -1505,6 +1500,92 @@ function tabExp(bal){
     </div>`;
   }).join('');
   return h;
+}
+
+function tabBudget(){
+  var cats=getCategories();
+  var catBudgets=db.meta.categoryBudgets||{};
+  var totalPlanned=Object.values(catBudgets).reduce((s,v)=>s+(parseFloat(v)||0),0);
+
+  // Compute actual spend per category
+  var actuals={};
+  var uncatTotal=0;
+  db.expenses.forEach(e=>{
+    var c=e.category||'';
+    if(c){ actuals[c]=(actuals[c]||0)+e.amount; }
+    else  { uncatTotal+=e.amount; }
+  });
+  var totalActual=db.expenses.reduce((s,e)=>s+e.amount,0);
+
+  if(!cats.length){
+    return `<div class="empty">
+      <p>No categories yet.</p>
+      <p style="font-size:12px;color:#9ca3af;margin-top:4px">Ask your admin to add categories in 👑 Admin → Categories, then set budgets here.</p>
+    </div>`;
+  }
+
+  var canEdit=isOwner(db.meta)||currentUser.role==='admin';
+
+  var h=`<div style="background:linear-gradient(90deg,#d97706,#ea580c);color:white;border-radius:12px;padding:12px 14px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:11px;font-weight:700;opacity:0.85">BUDGET OVERVIEW</div>
+      <div style="font-size:11px;opacity:0.7">Planned vs Actual</div></div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:900">₹${Math.round(totalActual).toLocaleString()} spent</div>
+        ${totalPlanned>0?`<div style="font-size:11px;opacity:0.8">of ₹${Math.round(totalPlanned).toLocaleString()} planned</div>`:'<div style="font-size:11px;opacity:0.7">No budget set</div>'}
+      </div>
+    </div>
+    ${totalPlanned>0?`<div style="margin-top:8px;background:rgba(255,255,255,0.25);border-radius:20px;height:6px;overflow:hidden">
+      <div style="background:${totalActual>totalPlanned?'#ef4444':'#86efac'};height:100%;width:${Math.min(100,Math.round(totalActual/totalPlanned*100))}%;border-radius:20px;transition:width 0.3s"></div>
+    </div>`:''}
+  </div>`;
+
+  // Per-category rows
+  h+=cats.map(cat=>{
+    var planned=parseFloat(catBudgets[cat])||0;
+    var actual=actuals[cat]||0;
+    var over=planned>0&&actual>planned;
+    var pct=planned>0?Math.min(100,Math.round(actual/planned*100)):0;
+    return `<div class="card" style="${over?'border-color:#fca5a5;background:#fef2f2':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🏷️ ${cat}</span>
+        <div style="flex:1"></div>
+        ${canEdit?`<button class="btn sm" style="background:#f3f4f6;color:#374151;font-size:11px;padding:4px 10px" onclick="doSetCategoryBudget('${cat}')">✏️ Set Budget</button>`:''}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+        <div><span style="color:#6b7280">Planned: </span><strong>${planned>0?'₹'+Math.round(planned).toLocaleString():'—'}</strong></div>
+        <div><span style="color:#6b7280">Actual: </span><strong style="color:${over?'#ef4444':actual>0?'#d97706':'#9ca3af'}">₹${Math.round(actual).toLocaleString()}</strong></div>
+        ${planned>0?`<div style="color:${over?'#ef4444':'#16a34a'};font-weight:700">${over?'⚠️ Over ₹'+Math.round(actual-planned).toLocaleString():'₹'+Math.round(planned-actual).toLocaleString()+' left'}</div>`:''}
+      </div>
+      ${planned>0?`<div style="background:#f3f4f6;border-radius:20px;height:6px;overflow:hidden">
+        <div style="background:${over?'#ef4444':'#d97706'};height:100%;width:${pct}%;border-radius:20px;transition:width 0.3s"></div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+
+  // Uncategorised
+  if(uncatTotal>0.01){
+    h+=`<div class="card" style="border-color:#e5e7eb;background:#f9fafb">
+      <div style="display:flex;justify-content:space-between;font-size:12px">
+        <span style="color:#6b7280;font-weight:700">📦 Uncategorised</span>
+        <span style="font-weight:900;color:#d97706">₹${Math.round(uncatTotal).toLocaleString()}</span>
+      </div>
+    </div>`;
+  }
+
+  return h;
+}
+
+async function doSetCategoryBudget(cat){
+  var current=(db.meta.categoryBudgets||{})[cat]||'';
+  var val=prompt('Set planned budget for "'+cat+'" (₹):', current);
+  if(val===null) return; // cancelled
+  var num=parseFloat(val)||0;
+  if(!db.meta.categoryBudgets) db.meta.categoryBudgets={};
+  db.meta.categoryBudgets[cat]=num;
+  await fbSet(tripId+'/meta',db.meta);
+  toast('✅ Budget set for '+cat);
+  render();
 }
 
 function tabFr(bal){
@@ -1866,18 +1947,23 @@ async function doExportCSV(){
 }
 
 // Share plain text message (WhatsApp, SMS, Outlook)
-async function doShareTextMsg(){
+// Share plain text message
+function doShareTextMsg(){
   var t=dashData.find(x=>x.id===_shareStoryId);
   if(!t) return;
   var txt=generatePlainText(t);
   if(navigator.share){
-    try{ await navigator.share({title:t.name+' – Settle Up', text:txt}); return; }
-    catch(e){ if(e.name==='AbortError') return; }
+    // Must call navigator.share synchronously within user gesture
+    navigator.share({title:t.name+' – Settle Up', text:txt})
+      .catch(function(e){ if(e.name!=='AbortError') fallbackCopy(txt); });
+    return;
   }
-  try{
-    await navigator.clipboard.writeText(txt);
-    toast('📋 Text copied! Paste into WhatsApp, Outlook, etc.');
-  }catch(e){}
+  fallbackCopy(txt);
+}
+function fallbackCopy(txt){
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(function(){toast('📋 Text copied! Paste into WhatsApp, Outlook, etc.');}).catch(function(){});
+  }
 }
 
 // Share / download the HTML file with tappable Pay UPI buttons
