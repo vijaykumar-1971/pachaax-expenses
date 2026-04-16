@@ -227,6 +227,8 @@ let lastSync    = '';
 let modal       = null;
 let editId      = null;
 let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='', ecat='';
+var csplitMode = 'amount'; // 'amount' | 'percent'
+var equalExcluded = {};    // {friendId: true} — excluded from equal-exclude split
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
@@ -963,11 +965,23 @@ async function doAddExpense(){
   if(esplit==='equal'){
     var per=amt/db.friends.length;
     db.friends.forEach(f=>split[f.id]=per);
+  }else if(esplit==='equal-exclude'){
+    var included=db.friends.filter(f=>!equalExcluded[f.id]);
+    if(!included.length){toast('Cannot exclude everyone!');_savingExpense=false;return;}
+    var per2=amt/included.length;
+    db.friends.forEach(f=>split[f.id]=equalExcluded[f.id]?0:per2);
   }else{
+    // custom — amount or percent
     db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
-    var tot=ctotal();
-    if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));return;}
-    db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);
+    if(csplitMode==='percent'){
+      var totPct=db.friends.reduce((s,f)=>s+(parseFloat(csplits[f.id])||0),0);
+      if(Math.abs(totPct-100)>0.01){toast('Percentages must sum to 100% (currently '+Math.round(totPct)+'%)');_savingExpense=false;return;}
+      db.friends.forEach(f=>split[f.id]=amt*(parseFloat(csplits[f.id])||0)/100);
+    }else{
+      var tot=ctotal();
+      if(Math.abs(tot-amt)>0.01){toast('Split ₹'+Math.round(tot)+' ≠ ₹'+Math.round(amt));_savingExpense=false;return;}
+      db.friends.forEach(f=>split[f.id]=parseFloat(csplits[f.id])||0);
+    }
   }
   var expDatetime=(ed&&et)?new Date(ed+'T'+et).toISOString():ed?new Date(ed+'T00:00').toISOString():new Date().toISOString();
   if(editId){
@@ -976,7 +990,7 @@ async function doAddExpense(){
   }else{
     db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat});
   }
-  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';
+  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';csplitMode='amount';equalExcluded={};
   _savingExpense=false;
   render();await saveTrip();
 }
@@ -1047,7 +1061,29 @@ async function doCreateTrip(){
 }
 function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';tab='friends';render();loadTrip();loadMemories();loadGroups().then(render);}
 function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';render();loadTrips();}
-function calcTotal(){var tot=0;db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;var match=ea>0&&Math.abs(tot-ea)<0.01;var el=document.getElementById('ctot');if(el){el.textContent='₹'+Math.round(tot)+(match?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el.style.color=match?'#16a34a':'#ef4444';}}
+function calcTotal(){
+  var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;
+  if(csplitMode==='percent'){
+    // sum percentages, show live rupee equivalents
+    var totPct=0;
+    db.friends.forEach(f=>{
+      var el=document.getElementById('cs'+f.id);
+      var pct=el?parseFloat(el.value)||0:0;
+      totPct+=pct;
+      var rv=document.getElementById('cr'+f.id);
+      if(rv) rv.textContent=ea>0?'= ₹'+Math.round(ea*pct/100):'';
+    });
+    var match=ea>0&&Math.abs(totPct-100)<0.01;
+    var el=document.getElementById('ctot');
+    if(el){el.textContent=Math.round(totPct)+'%'+(match?' ✅':' (need 100%)');el.style.color=match?'#16a34a':'#ef4444';}
+  }else{
+    var tot=0;
+    db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)tot+=parseFloat(el.value)||0;});
+    var match2=ea>0&&Math.abs(tot-ea)<0.01;
+    var el2=document.getElementById('ctot');
+    if(el2){el2.textContent='₹'+Math.round(tot)+(match2?' ✅':ea>0?' (need ₹'+Math.round(ea)+')':'');el2.style.color=match2?'#16a34a':'#ef4444';}
+  }
+}
 function doSetSplit(t){
   db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
   var ded=document.getElementById('ied');if(ded)edesc=ded.value;
@@ -1056,7 +1092,24 @@ function doSetSplit(t){
   var ded2=document.getElementById('iedate');if(ded2)edate=ded2.value;
   var det=document.getElementById('ietime');if(det)etime=det.value;
   var dec=document.getElementById('iecat');if(dec)ecat=dec.value;
-  esplit=t;render();setTimeout(()=>{if(t==='custom')calcTotal();},50);
+  esplit=t; render(); setTimeout(()=>{if(t==='custom'||t==='equal-exclude')calcTotal();},50);
+}
+function doToggleSplitMode(mode){
+  // Save current inputs before switching
+  db.friends.forEach(f=>{var el=document.getElementById('cs'+f.id);if(el)csplits[f.id]=el.value;});
+  csplitMode=mode;
+  // Clear splits when switching mode to avoid confusion
+  csplits={};
+  render(); setTimeout(()=>calcTotal(),50);
+}
+function doToggleExclude(fid){
+  // Read current modal state
+  var ded=document.getElementById('ied');if(ded)edesc=ded.value;
+  var dea=document.getElementById('iea');if(dea)eamt=dea.value;
+  var dep=document.getElementById('iep');if(dep)epayer=dep.value;
+  if(equalExcluded[fid]) delete equalExcluded[fid];
+  else equalExcluded[fid]=true;
+  render();
 }
 
 // ============ CATEGORY MANAGEMENT (app-level, admin only) ============
@@ -1455,7 +1508,7 @@ function tabExp(bal){
   var h=`<div class="shd"><h2>Expenses</h2>
     <div style="display:flex;gap:6px">
       ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this story">🗑️</button>`:''}
-      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
+      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';csplitMode='amount';equalExcluded={};modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
     </div>
   </div>
   <div class="fr-subtabs">
@@ -2511,19 +2564,61 @@ function mExpense(){
   var defTime=etime||nowDate.toTimeString().slice(0,5);
   var cats=getCategories().slice().sort((a,b)=>a.localeCompare(b));
   var catOpts=cats.map(c=>`<option value="${c}" ${ecat===c?'selected':''}>${c}</option>`).join('');
-  var cbox=esplit==='custom'?`
-    <div class="cbox">
-      <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:7px">AMOUNT PER PERSON:</div>
+
+  // ---- SPLIT BOX ----
+  var splitBox = '';
+  if(esplit==='equal-exclude'){
+    var includedCount=db.friends.filter(f=>!equalExcluded[f.id]).length;
+    var eaV=parseFloat(eamt)||0;
+    var perHead=includedCount>0?eaV/includedCount:0;
+    splitBox=`<div class="cbox">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:8px">EXCLUDE FROM SPLIT:</div>
+      ${db.friends.map(f=>{
+        var excl=!!equalExcluded[f.id];
+        return `<div class="crow" style="justify-content:space-between">
+          <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+            <input type="checkbox" ${excl?'checked':''} onchange="doToggleExclude('${f.id}')"
+              style="width:16px;height:16px;accent-color:#d97706;cursor:pointer">
+            <span style="${excl?'text-decoration:line-through;color:#9ca3af':'font-weight:600'}">${f.name}</span>
+          </label>
+          <span style="font-size:12px;color:${excl?'#9ca3af':'#d97706'};font-weight:700;min-width:60px;text-align:right">
+            ${excl?'Excluded':eaV>0?'₹'+Math.round(perHead):'—'}
+          </span>
+        </div>`;
+      }).join('')}
+      <div class="ctot" style="margin-top:6px">
+        <span style="font-weight:700">Split among:</span>
+        <span style="font-weight:900;color:${includedCount>0?'#16a34a':'#ef4444'}">${includedCount} of ${db.friends.length} members</span>
+      </div>
+    </div>`;
+  } else if(esplit==='custom'){
+    splitBox=`<div class="cbox">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+        <div style="font-size:11px;font-weight:700;color:#6b7280">SPLIT PER PERSON:</div>
+        <div style="display:flex;gap:4px">
+          <button class="btn sm ${csplitMode==='amount'?'primary':'secondary'}" style="padding:4px 10px;font-size:11px" onclick="doToggleSplitMode('amount')">₹ Amount</button>
+          <button class="btn sm ${csplitMode==='percent'?'primary':'secondary'}" style="padding:4px 10px;font-size:11px" onclick="doToggleSplitMode('percent')">% Percent</button>
+        </div>
+      </div>
       ${db.friends.map(f=>`
       <div class="crow">
         <span>${f.name}</span>
-        <input id="cs${f.id}" class="ci" type="number" inputmode="decimal" placeholder="0" value="${csplits[f.id]||''}" oninput="calcTotal()">
+        <div style="display:flex;align-items:center;gap:4px">
+          ${csplitMode==='percent'?`<span id="cr${f.id}" style="font-size:10px;color:#d97706;min-width:48px;text-align:right"></span>`:''}
+          <input id="cs${f.id}" class="ci" type="number" inputmode="decimal"
+            placeholder="${csplitMode==='percent'?'0%':'0'}"
+            value="${csplits[f.id]||''}" oninput="calcTotal()"
+            style="width:${csplitMode==='percent'?'65px':'95px'}">
+          ${csplitMode==='percent'?`<span style="color:#6b7280;font-size:12px">%</span>`:''}
+        </div>
       </div>`).join('')}
       <div class="ctot">
         <span style="font-weight:700">Total:</span>
-        <span id="ctot" style="font-weight:900;color:#ef4444">₹0</span>
+        <span id="ctot" style="font-weight:900;color:#ef4444">${csplitMode==='percent'?'0% (need 100%)':'₹0'}</span>
       </div>
-    </div>`:'';
+    </div>`;
+  }
+
   return `<div class="overlay" onclick="modal=null;editId=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>${isEdit?'✏️ Edit Expense':'💸 Add Expense'}</h3>
@@ -2541,21 +2636,20 @@ function mExpense(){
       ${!cats.length&&currentUser.role==='admin'?`<p style="font-size:11px;color:#9ca3af;margin:-4px 0 8px">No categories yet. Add them in 👑 Admin → Categories.</p>`:''}
       ${!cats.length&&currentUser.role!=='admin'?`<p style="font-size:11px;color:#9ca3af;margin:-4px 0 8px">Ask your admin to add categories.</p>`:''}
       <div style="display:flex;gap:8px">
-        <div style="flex:1">
-          <span class="lbl">Date</span>
+        <div style="flex:1"><span class="lbl">Date</span>
           <input id="iedate" class="f" type="date" value="${defDate}">
         </div>
-        <div style="flex:1">
-          <span class="lbl">Time</span>
+        <div style="flex:1"><span class="lbl">Time</span>
           <input id="ietime" class="f" type="time" value="${defTime}">
         </div>
       </div>
       <span class="lbl">Split Type</span>
-      <div class="stgl">
-        <button class="btn sm ${esplit==='equal'?'primary':'secondary'}" onclick="doSetSplit('equal')">⚖️ Equal</button>
-        <button class="btn sm ${esplit==='custom'?'primary':'secondary'}" onclick="doSetSplit('custom')">✏️ Custom</button>
+      <div class="stgl" style="flex-wrap:wrap;gap:6px">
+        <button class="btn sm ${esplit==='equal'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('equal')">⚖️ Equal</button>
+        <button class="btn sm ${esplit==='equal-exclude'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('equal-exclude')">👥 Exclude</button>
+        <button class="btn sm ${esplit==='custom'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('custom')">✏️ Custom</button>
       </div>
-      ${cbox}
+      ${splitBox}
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;editId=null;render()">Cancel</button>
         <button class="btn primary" onclick="doAddExpense()">${isEdit?'💾 Save':'➕ Add Expense'}</button>
