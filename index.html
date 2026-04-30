@@ -166,9 +166,9 @@ const FB_AUTH = 'https://pachaax-expenses-default-rtdb.firebaseio.com/users';
 // Fill in your EmailJS credentials below — they are baked into the HTML file
 // and work seamlessly across all browsers without any setup step.
 // Get them from https://emailjs.com → your account dashboard.
-const EJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';   // Account → General → Public Key
-const EJS_SERVICE_ID  = 'YOUR_SERVICE_ID';   // Email Services → your service → Service ID
-const EJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';  // Email Templates → your template → Template ID
+const EJS_PUBLIC_KEY  = 'wvK95DlAlD6E7ld7H';   // Account → General → Public Key
+const EJS_SERVICE_ID  = 'service_pph2qsj';   // Email Services → your service → Service ID
+const EJS_TEMPLATE_ID = 'template_rq1ptiv';  // Email Templates → your template → Template ID
 // Template must have "To Email" = {{to_email}}
 // Body variables: {{to_name}} {{otp_code}} {{purpose}} {{app_name}}
 
@@ -226,69 +226,9 @@ let syncing     = false;
 let lastSync    = '';
 let modal       = null;
 let editId      = null;
-let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='', ecat='', ecurrency='';
+let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='', ecat='';
 var csplitMode = 'amount'; // 'amount' | 'percent'
 var equalExcluded = {};    // {friendId: true} — excluded from equal-exclude split
-
-// ============ CURRENCY ============
-const CURRENCIES = {
-  INR:'₹',  USD:'$',  EUR:'€',  GBP:'£',  SGD:'S$', AED:'AED ',
-  JPY:'¥',  AUD:'A$', CAD:'C$', CHF:'Fr ', THB:'฿',  MYR:'RM ',
-  HKD:'HK$',NZD:'NZ$',SEK:'kr ',NOK:'kr ',DKK:'kr '
-};
-const CURRENCY_NAMES = {
-  INR:'Indian Rupee',  USD:'US Dollar',     EUR:'Euro',
-  GBP:'British Pound', SGD:'Singapore Dollar', AED:'UAE Dirham',
-  JPY:'Japanese Yen',  AUD:'Australian Dollar', CAD:'Canadian Dollar',
-  CHF:'Swiss Franc',   THB:'Thai Baht',     MYR:'Malaysian Ringgit',
-  HKD:'Hong Kong Dollar', NZD:'New Zealand Dollar',
-  SEK:'Swedish Krona', NOK:'Norwegian Krone', DKK:'Danish Krone'
-};
-
-var exchangeRates = {};  // {USD: rate_from_INR, EUR: ...} — all relative to INR as base
-var ratesLoadedAt = 0;   // timestamp
-var ratesLoading  = false;
-
-function userCurrency(){ return (currentUser&&currentUser.currency)||'INR'; }
-
-function currencySymbol(c){ return CURRENCIES[c]||c+' '; }
-
-// Convert amount from one currency to another using cached rates (base = INR)
-function convertAmt(amount, fromCur, toCur){
-  fromCur=fromCur||'INR'; toCur=toCur||userCurrency();
-  if(fromCur===toCur) return amount;
-  if(!Object.keys(exchangeRates).length) return amount; // no rates yet, show as-is
-  // Convert to INR first, then to target
-  var toINR = fromCur==='INR' ? amount : amount / (exchangeRates[fromCur]||1);
-  return toCur==='INR' ? toINR : toINR * (exchangeRates[toCur]||1);
-}
-
-// Format an amount in user's preferred currency
-function fmt(amount, fromCur){
-  var converted=convertAmt(amount, fromCur||'INR', userCurrency());
-  var sym=currencySymbol(userCurrency());
-  // Use locale formatting; for JPY no decimals
-  var uc=userCurrency();
-  var decimals=(uc==='JPY')?0:(converted<100?2:0);
-  return sym+converted.toLocaleString('en-IN',{minimumFractionDigits:decimals,maximumFractionDigits:decimals});
-}
-
-async function loadExchangeRates(force){
-  if(ratesLoading) return;
-  var age=Date.now()-ratesLoadedAt;
-  if(!force && Object.keys(exchangeRates).length && age<3600000) return; // cache 1hr
-  ratesLoading=true;
-  try{
-    // Frankfurter.app: free, no key, returns rates FROM base currency
-    var r=await fetch('https://api.frankfurter.app/latest?from=INR&to='+Object.keys(CURRENCIES).filter(c=>c!=='INR').join(','));
-    if(r.ok){
-      var d=await r.json();
-      if(d&&d.rates){ exchangeRates=d.rates; ratesLoadedAt=Date.now(); }
-    }
-  }catch(e){ console.warn('Exchange rate fetch failed',e); }
-  ratesLoading=false;
-  render();
-}
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
@@ -415,11 +355,11 @@ async function doLogin(){
     if(!rec.verified){ authErr='Email not verified. Please complete OTP verification.'; authLoading=false; render(); return; }
     var h=await hashPwd(p);
     if(h!==rec.passwordHash){ authErr='Incorrect password.'; authLoading=false; render(); return; }
-    currentUser={email:u, role:rec.role||'user', displayName:rec.displayName||u, currency:rec.currency||'INR'};
+    currentUser={email:u, role:rec.role||'user', displayName:rec.displayName||u};
     localStorage.setItem('px-user',JSON.stringify(currentUser));
     authErr=''; authLoading=false;
     toast('👋 Welcome back, '+currentUser.displayName+'!');
-    loadCategories(); loadExchangeRates();
+    loadCategories();
     render(); loadTrips();
   }catch(e){ authErr='Connection error. Please try again.'; authLoading=false; render(); }
 }
@@ -475,7 +415,7 @@ async function doVerifyOtp(){
     if(!rec){ authErr='Account not found. Please register again.'; authLoading=false; render(); return; }
     rec.verified=true;
     await faSet(eKey(_otpState.email),rec);
-    currentUser={email:_otpState.email, role:rec.role, displayName:rec.displayName, currency:rec.currency||'INR'};
+    currentUser={email:_otpState.email, role:rec.role, displayName:rec.displayName};
     localStorage.setItem('px-user',JSON.stringify(currentUser));
     clearOtpState(); if(_otpTimer) clearInterval(_otpTimer);
     authErr=''; authLoading=false;
@@ -1019,7 +959,6 @@ async function doAddExpense(){
   var ed=(document.getElementById('iedate')||{value:''}).value;
   var et=(document.getElementById('ietime')||{value:''}).value;
   var cat=(document.getElementById('iecat')||{value:''}).value.trim();
-  var expCurrency=(document.getElementById('iecur')||{value:''}).value||userCurrency();
   if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
   _savingExpense=true;
   var split={};
@@ -1047,11 +986,11 @@ async function doAddExpense(){
   var expDatetime=(ed&&et)?new Date(ed+'T'+et).toISOString():ed?new Date(ed+'T00:00').toISOString():new Date().toISOString();
   if(editId){
     var idx=db.expenses.findIndex(e=>e.id===editId);
-    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency};
+    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat};
   }else{
-    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency});
+    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat});
   }
-  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';ecurrency='';csplitMode='amount';equalExcluded={};
+  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';csplitMode='amount';equalExcluded={};
   _savingExpense=false;
   render();await saveTrip();
 }
