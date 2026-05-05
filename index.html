@@ -1062,7 +1062,7 @@ async function doDelExpense(id){
 }
 function doEditExpense(id){
   var e=db.expenses.find(x=>x.id===id);if(!e)return;
-  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;ecat=e.category||'';
+  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;ecat=e.category||'';ecurrency=e.currency||'INR';
   if(e.date){var d=new Date(e.date);edate=d.toISOString().split('T')[0];etime=d.toTimeString().slice(0,5);}
   else{edate='';etime='';}
   var vals=Object.values(e.splitAmong);
@@ -1602,20 +1602,21 @@ function tabExp(bal){
     </div>`:''}
   </div>`;
   h+=db.expenses.map(e=>{
-    var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
+    var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ${fmt(a,e.currency)}</span>`).join('');
     var expDt=e.date?new Date(e.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
     var catBadge=e.category?`<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;margin-left:5px">🏷️ ${e.category}</span>`:'';
+    var curBadge=e.currency&&e.currency!==userCurrency()?`<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:12px;font-size:9px;font-weight:700;margin-left:4px">${e.currency}</span>`:'';
     return `<div class="card">
       <div class="row">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}${catBadge}</div>
+          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}${catBadge}${curBadge}</div>
           <div style="font-size:11px;color:#6b7280;margin-top:2px">
             Paid by <strong style="color:#d97706">${gname(e.paidBy)}</strong>
             ${expDt?`<span style="color:#9ca3af"> · 🕐 ${expDt}</span>`:''}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-          <div style="font-size:18px;font-weight:900;color:#d97706">₹${Math.round(e.amount)}</div>
+          <div style="font-size:18px;font-weight:900;color:#d97706">${fmt(e.amount,e.currency)}</div>
           <button class="ebtn" onclick="doEditExpense('${e.id}')">✏️</button>
           <button class="dbtn" onclick="doDelExpense('${e.id}')">✕</button>
         </div>
@@ -2625,6 +2626,8 @@ function mExpense(){
   var defTime=etime||nowDate.toTimeString().slice(0,5);
   var cats=getCategories().slice().sort((a,b)=>a.localeCompare(b));
   var catOpts=cats.map(c=>`<option value="${c}" ${ecat===c?'selected':''}>${c}</option>`).join('');
+  var curDefault=ecurrency||userCurrency();
+  var curOpts=Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${curDefault===c?'selected':''}>${c} - ${CURRENCY_NAMES[c]}</option>`).join('');
 
   // ---- SPLIT BOX ----
   var splitBox = '';
@@ -2685,8 +2688,18 @@ function mExpense(){
       <h3>${isEdit?'✏️ Edit Expense':'💸 Add Expense'}</h3>
       <span class="lbl">Description</span>
       <input id="ied" class="f" type="text" placeholder="e.g. Dinner, Hotel" autocomplete="off" value="${edesc}">
-      <span class="lbl">Amount (₹)</span>
-      <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()">
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <span class="lbl">Currency</span>
+          <select id="iecur" class="f" style="margin:0">
+            ${curOpts}
+          </select>
+        </div>
+        <div style="flex:2">
+          <span class="lbl">Amount</span>
+          <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()" style="margin:0">
+        </div>
+      </div>
       <span class="lbl">Who Paid?</span>
       <select id="iep" class="f"><option value="">Select person</option>${opts}</select>
       <span class="lbl">Category</span>
@@ -2777,6 +2790,11 @@ function mProfile(){
       <input id="profile-name" class="f" type="text" value="${currentUser.displayName}"
         placeholder="Your display name"
         onkeydown="if(event.key==='Enter')doUpdateProfile()">
+      <span class="lbl">Preferred Currency</span>
+      <select id="profile-currency" class="f">
+        ${Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${userCurrency()===c?'selected':''}>${c} - ${CURRENCY_NAMES[c]}</option>`).join('')}
+      </select>
+      <p style="font-size:11px;color:#9ca3af;margin:-4px 0 12px">All amounts will be converted to your preferred currency</p>
       <div id="profile-msg" style="font-size:12px;min-height:16px;margin:-4px 0 8px"></div>
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
@@ -2788,9 +2806,12 @@ function mProfile(){
 
 async function doUpdateProfile(){
   var name=(document.getElementById('profile-name')||{value:''}).value.trim();
+  var newCurrency=(document.getElementById('profile-currency')||{value:''}).value||'INR';
   var msg=document.getElementById('profile-msg');
   if(!name){if(msg)msg.textContent='Name cannot be empty';return;}
-  if(name===currentUser.displayName){modal=null;render();return;}
+  var nameChanged=name!==currentUser.displayName;
+  var currencyChanged=newCurrency!==userCurrency();
+  if(!nameChanged&&!currencyChanged){modal=null;render();return;}
   if(msg){msg.style.color='#6b7280';msg.textContent='Saving...';}
   var oldName=currentUser.displayName;
   try{
@@ -2798,10 +2819,12 @@ async function doUpdateProfile(){
     var rec=await faGet(eKey(currentUser.email));
     if(!rec) throw new Error('User not found');
     rec.displayName=name;
+    rec.currency=newCurrency;
     await fetch(aurl(eKey(currentUser.email)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)});
 
     // 2. Update local currentUser immediately
     currentUser.displayName=name;
+    currentUser.currency=newCurrency;
     localStorage.setItem('px-user',JSON.stringify(currentUser));
 
     // Helper: rename self in a friends array
