@@ -802,8 +802,13 @@ function balances(){
   var b={};
   db.friends.forEach(f=>b[f.id]=0);
   db.expenses.forEach(e=>{
-    b[e.paidBy]=(b[e.paidBy]||0)+e.amount;
-    Object.entries(e.splitAmong).forEach(([id,a])=>b[id]=(b[id]||0)-a);
+    var cur=e.currency||'INR';
+    var convertedAmt=convertAmt(e.amount,cur,userCurrency());
+    b[e.paidBy]=(b[e.paidBy]||0)+convertedAmt;
+    Object.entries(e.splitAmong).forEach(([id,a])=>{
+      var convertedSplit=convertAmt(a,cur,userCurrency());
+      b[id]=(b[id]||0)-convertedSplit;
+    });
   });
   return b;
 }
@@ -936,8 +941,13 @@ function tripBalances(t){
   var b={};
   t.friends.forEach(f=>b[f.id]=0);
   t.expenses.forEach(e=>{
-    b[e.paidBy]=(b[e.paidBy]||0)+e.amount;
-    Object.entries(e.splitAmong||{}).forEach(([id,a])=>b[id]=(b[id]||0)-a);
+    var cur=e.currency||'INR';
+    var convertedAmt=convertAmt(e.amount,cur,userCurrency());
+    b[e.paidBy]=(b[e.paidBy]||0)+convertedAmt;
+    Object.entries(e.splitAmong||{}).forEach(([id,a])=>{
+      var convertedSplit=convertAmt(a,cur,userCurrency());
+      b[id]=(b[id]||0)-convertedSplit;
+    });
   });
   return b;
 }
@@ -1062,7 +1072,7 @@ async function doDelExpense(id){
 }
 function doEditExpense(id){
   var e=db.expenses.find(x=>x.id===id);if(!e)return;
-  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;ecat=e.category||'';
+  editId=id;edesc=e.description;eamt=String(e.amount);epayer=e.paidBy;ecat=e.category||'';ecurrency=e.currency||'INR';
   if(e.date){var d=new Date(e.date);edate=d.toISOString().split('T')[0];etime=d.toTimeString().slice(0,5);}
   else{edate='';etime='';}
   var vals=Object.values(e.splitAmong);
@@ -1564,7 +1574,7 @@ function tripScreen(){
 
 // ============ TABS ============
 function tabExp(bal){
-  var total=db.expenses.reduce((s,e)=>s+e.amount,0);
+  var total=db.expenses.reduce((s,e)=>s+convertAmt(e.amount,e.currency||'INR',userCurrency()),0);
   var owner=isOwner(db.meta);
   var h=`<div class="shd"><h2>Expenses</h2>
     <div style="display:flex;gap:6px">
@@ -1585,16 +1595,17 @@ function tabExp(bal){
 
   var totalPlanned=Object.values(db.meta.categoryBudgets||{}).reduce((s,v)=>s+(parseFloat(v)||0),0);
   var overAll=totalPlanned>0&&total>totalPlanned;
+  var sym=currencySymbol(userCurrency());
   h+=`<div style="background:linear-gradient(90deg,#d97706,#ea580c);color:white;border-radius:12px;padding:12px 14px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div style="font-size:11px;font-weight:700;opacity:0.85">TOTAL SPENT</div>
       <div style="font-size:11px;opacity:0.7">${db.expenses.length} expense${db.expenses.length!==1?'s':''} · ${db.friends.length} people</div></div>
-      <div style="font-size:24px;font-weight:900">₹${Math.round(total).toLocaleString()}</div>
+      <div style="font-size:24px;font-weight:900">${sym}${Math.round(total).toLocaleString()}</div>
     </div>
     ${totalPlanned>0?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25)">
       <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:5px">
-        <span>Budget: ₹${Math.round(totalPlanned).toLocaleString()}</span>
-        <span style="color:${overAll?'#fca5a5':'#bbf7d0'}">${overAll?'⚠️ Over by ₹'+Math.round(total-totalPlanned).toLocaleString():'₹'+Math.round(totalPlanned-total).toLocaleString()+' remaining'}</span>
+        <span>Budget: ${sym}${Math.round(totalPlanned).toLocaleString()}</span>
+        <span style="color:${overAll?'#fca5a5':'#bbf7d0'}">${overAll?'⚠️ Over by '+sym+Math.round(total-totalPlanned).toLocaleString():sym+Math.round(totalPlanned-total).toLocaleString()+' remaining'}</span>
       </div>
       <div style="background:rgba(255,255,255,0.25);border-radius:20px;height:6px;overflow:hidden">
         <div style="background:${overAll?'#ef4444':'#86efac'};height:100%;width:${Math.min(100,Math.round(total/totalPlanned*100))}%;border-radius:20px;transition:width 0.3s"></div>
@@ -1602,20 +1613,21 @@ function tabExp(bal){
     </div>`:''}
   </div>`;
   h+=db.expenses.map(e=>{
-    var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ₹${Math.round(a)}</span>`).join('');
+    var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ${fmt(a,e.currency)}</span>`).join('');
     var expDt=e.date?new Date(e.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
     var catBadge=e.category?`<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;margin-left:5px">🏷️ ${e.category}</span>`:'';
+    var curBadge=e.currency&&e.currency!==userCurrency()?`<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:12px;font-size:9px;font-weight:700;margin-left:4px">${e.currency}</span>`:'';
     return `<div class="card">
       <div class="row">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}${catBadge}</div>
+          <div style="font-weight:900;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description}${catBadge}${curBadge}</div>
           <div style="font-size:11px;color:#6b7280;margin-top:2px">
             Paid by <strong style="color:#d97706">${gname(e.paidBy)}</strong>
             ${expDt?`<span style="color:#9ca3af"> · 🕐 ${expDt}</span>`:''}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-          <div style="font-size:18px;font-weight:900;color:#d97706">₹${Math.round(e.amount)}</div>
+          <div style="font-size:18px;font-weight:900;color:#d97706">${fmt(e.amount,e.currency)}</div>
           <button class="ebtn" onclick="doEditExpense('${e.id}')">✏️</button>
           <button class="dbtn" onclick="doDelExpense('${e.id}')">✕</button>
         </div>
@@ -1823,10 +1835,11 @@ function tabSet(bal,sets){
 
   // ---- BALANCES (remaining after accounting for payments already made) ----
   var effBal=settledBalances();
+  var sym=currencySymbol(userCurrency());
   var h=`<div class="btbl"><div style="font-weight:900;font-size:15px;margin-bottom:10px">Current Balances</div>`;
   h+=db.friends.map(f=>{
     var b=effBal[f.id]||0,cls=b>0.01?'pos':b<-0.01?'neg':'zero';
-    var txt=b>0.01?`+₹${Math.round(b)}`:b<-0.01?`-₹${Math.round(-b)}`:'₹0';
+    var txt=b>0.01?`+${sym}${Math.round(b)}`:b<-0.01?`-${sym}${Math.round(-b)}`:sym+'0';
     return `<div class="brow"><span style="font-weight:700">${f.name}</span><span class="${cls}">${txt}</span></div>`;
   }).join('');
   h+=`</div>`;
@@ -1845,12 +1858,12 @@ function tabSet(bal,sets){
           <div>
             <div style="font-weight:700;font-size:13px">${gname(s.from)} → ${gname(s.to)}</div>
             ${partial?`<div style="font-size:11px;color:#92400e;margin-top:2px">
-              Paid so far: <strong>₹${Math.round(s.totalPaid)}</strong> · Remaining: <strong style="color:#ef4444">₹${Math.round(s.remaining)}</strong>
+              Paid so far: <strong>${sym}${Math.round(s.totalPaid)}</strong> · Remaining: <strong style="color:#ef4444">${sym}${Math.round(s.remaining)}</strong>
             </div>`:''}
           </div>
           <div style="text-align:right">
-            <div style="font-weight:900;font-size:17px;color:${partial?'#d97706':'#16a34a'}">₹${Math.round(s.remaining)}</div>
-            ${partial?`<div style="font-size:10px;color:#9ca3af">of ₹${Math.round(s.amount)}</div>`:''}
+            <div style="font-weight:900;font-size:17px;color:${partial?'#d97706':'#16a34a'}">${sym}${Math.round(s.remaining)}</div>
+            ${partial?`<div style="font-size:10px;color:#9ca3af">of ${sym}${Math.round(s.amount)}</div>`:''}
           </div>
         </div>
         <div class="sbtns">
@@ -2625,6 +2638,8 @@ function mExpense(){
   var defTime=etime||nowDate.toTimeString().slice(0,5);
   var cats=getCategories().slice().sort((a,b)=>a.localeCompare(b));
   var catOpts=cats.map(c=>`<option value="${c}" ${ecat===c?'selected':''}>${c}</option>`).join('');
+  var curDefault=ecurrency||userCurrency();
+  var curOpts=Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${curDefault===c?'selected':''}>${c} - ${CURRENCY_NAMES[c]}</option>`).join('');
 
   // ---- SPLIT BOX ----
   var splitBox = '';
@@ -2685,8 +2700,18 @@ function mExpense(){
       <h3>${isEdit?'✏️ Edit Expense':'💸 Add Expense'}</h3>
       <span class="lbl">Description</span>
       <input id="ied" class="f" type="text" placeholder="e.g. Dinner, Hotel" autocomplete="off" value="${edesc}">
-      <span class="lbl">Amount (₹)</span>
-      <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()">
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <span class="lbl">Currency</span>
+          <select id="iecur" class="f" style="margin:0">
+            ${curOpts}
+          </select>
+        </div>
+        <div style="flex:2">
+          <span class="lbl">Amount</span>
+          <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()" style="margin:0">
+        </div>
+      </div>
       <span class="lbl">Who Paid?</span>
       <select id="iep" class="f"><option value="">Select person</option>${opts}</select>
       <span class="lbl">Category</span>
@@ -2777,6 +2802,11 @@ function mProfile(){
       <input id="profile-name" class="f" type="text" value="${currentUser.displayName}"
         placeholder="Your display name"
         onkeydown="if(event.key==='Enter')doUpdateProfile()">
+      <span class="lbl">Preferred Currency</span>
+      <select id="profile-currency" class="f">
+        ${Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${userCurrency()===c?'selected':''}>${c} - ${CURRENCY_NAMES[c]}</option>`).join('')}
+      </select>
+      <p style="font-size:11px;color:#9ca3af;margin:-4px 0 12px">All amounts will be converted to your preferred currency</p>
       <div id="profile-msg" style="font-size:12px;min-height:16px;margin:-4px 0 8px"></div>
       <div class="mbtns">
         <button class="btn secondary" onclick="modal=null;render()">Cancel</button>
@@ -2788,9 +2818,12 @@ function mProfile(){
 
 async function doUpdateProfile(){
   var name=(document.getElementById('profile-name')||{value:''}).value.trim();
+  var newCurrency=(document.getElementById('profile-currency')||{value:''}).value||'INR';
   var msg=document.getElementById('profile-msg');
   if(!name){if(msg)msg.textContent='Name cannot be empty';return;}
-  if(name===currentUser.displayName){modal=null;render();return;}
+  var nameChanged=name!==currentUser.displayName;
+  var currencyChanged=newCurrency!==userCurrency();
+  if(!nameChanged&&!currencyChanged){modal=null;render();return;}
   if(msg){msg.style.color='#6b7280';msg.textContent='Saving...';}
   var oldName=currentUser.displayName;
   try{
@@ -2798,10 +2831,12 @@ async function doUpdateProfile(){
     var rec=await faGet(eKey(currentUser.email));
     if(!rec) throw new Error('User not found');
     rec.displayName=name;
+    rec.currency=newCurrency;
     await fetch(aurl(eKey(currentUser.email)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)});
 
     // 2. Update local currentUser immediately
     currentUser.displayName=name;
+    currentUser.currency=newCurrency;
     localStorage.setItem('px-user',JSON.stringify(currentUser));
 
     // Helper: rename self in a friends array
@@ -2876,6 +2911,7 @@ async function doUpdateProfile(){
   if(currentUser){
     loadCategories();
     loadGroups();
+    loadExchangeRates();
     if(tripId){ loadTrip(); loadMemories(); } else loadTrips();
   }
 })();
