@@ -1096,7 +1096,7 @@ async function doMarkPaid(){
   if(isNaN(amt)||amt<=0){toast('Enter a valid amount');return;}
   db.settlements.push({fromId:_mpFrom, toId:_mpTo, amount:amt, paidAt:new Date().toISOString()});
   modal=null; render(); await saveTrip();
-  toast('✅ Payment of ₹'+Math.round(amt)+' recorded');
+  toast('✅ Payment of '+currencySymbol(userCurrency())+Math.round(amt)+' recorded');
 }
 
 async function doRemovePayment(globalIdx){
@@ -1379,7 +1379,7 @@ function render(){
   if(currentUser.banned){root.innerHTML=bannedScreen();return;}
   if(!tripId){root.innerHTML=tripScreen();return;}
 
-  var bal=balances(), sets=settlements();
+  var bal=netBalances(), sets=settlements();
   var meta=db.meta||{};
   var tripLabel=meta.name||tripId;
   var tripDate=meta.date?new Date(meta.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
@@ -2618,20 +2618,21 @@ function mMarkPaid(){
   var sets=settlements();
   var s=sets.find(x=>x.from===_mpFrom&&x.to===_mpTo);
   var owed=s?s.remaining:_mpOwed;
+  var sym=currencySymbol(userCurrency());
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>💸 Record Payment</h3>
       ${s?`<div style="background:#f0fdf4;border-radius:9px;padding:10px 12px;margin-bottom:12px;font-size:13px">
         <div style="font-weight:700;color:#374151">${gname(s.from)} → ${gname(s.to)}</div>
         <div style="color:#6b7280;margin-top:2px">
-          Total owed: <strong>₹${Math.round(s.amount)}</strong>
-          ${s.totalPaid>0?` · Paid so far: <strong style="color:#16a34a">₹${Math.round(s.totalPaid)}</strong>`:''}
+          Total owed: <strong>${sym}${Math.round(s.amount)}</strong>
+          ${s.totalPaid>0?` · Paid so far: <strong style="color:#16a34a">${sym}${Math.round(s.totalPaid)}</strong>`:''}
         </div>
-        <div style="font-size:12px;font-weight:700;color:#ef4444;margin-top:2px">Remaining: ₹${Math.round(owed)}</div>
+        <div style="font-size:12px;font-weight:700;color:#ef4444;margin-top:2px">Remaining: ${sym}${Math.round(owed)}</div>
       </div>`:''}
-      <span class="lbl">Amount Being Paid Now (₹)</span>
+      <span class="lbl">Amount Being Paid Now (${userCurrency()})</span>
       <input id="mp-amt" class="f" type="number" inputmode="decimal" placeholder="0"
-        oninput="(function(){var v=parseFloat(document.getElementById('mp-amt').value)||0;var d=document.getElementById('mp-diff');if(!d)return;var diff=${owed}-v;if(v<=0){d.textContent='';return;}if(Math.abs(diff)<0.01){d.innerHTML='<span style=\\'color:#16a34a;font-weight:700\\'>✅ Fully settled</span>';}else if(diff>0){d.innerHTML='<span style=\\'color:#d97706;font-weight:700\\'>⚠️ Still remaining: ₹'+Math.round(diff)+'</span>';}else{d.innerHTML='<span style=\\'color:#7c3aed;font-weight:700\\'>ℹ️ Overpaying by ₹'+Math.round(-diff)+'</span>';}})()"
+        oninput="(function(){var v=parseFloat(document.getElementById('mp-amt').value)||0;var d=document.getElementById('mp-diff');if(!d)return;var diff=${owed}-v;if(v<=0){d.textContent='';return;}if(Math.abs(diff)<0.01){d.innerHTML='<span style=\\'color:#16a34a;font-weight:700\\'>✅ Fully settled</span>';}else if(diff>0){d.innerHTML='<span style=\\'color:#d97706;font-weight:700\\'>⚠️ Still remaining: ${sym}'+Math.round(diff)+'</span>';}else{d.innerHTML='<span style=\\'color:#7c3aed;font-weight:700\\'>ℹ️ Overpaying by ${sym}'+Math.round(-diff)+'</span>';}})()"
         onkeydown="if(event.key==='Enter')doMarkPaid()">
       <div id="mp-diff" style="font-size:12px;color:#6b7280;margin:-4px 0 10px;min-height:18px"></div>
       <div class="mbtns">
