@@ -229,6 +229,29 @@ let editId      = null;
 let fname='', edesc='', eamt='', epayer='', esplit='equal', csplits={}, edate='', etime='', ecat='', ecurrency='';
 var csplitMode = 'amount'; // 'amount' | 'percent'
 var equalExcluded = {};    // {friendId: true} — excluded from equal-exclude split
+var equalShares = {};      // {friendId: number} — share count for equal-share split (default 1)
+function shareOf(fid){ return equalShares[fid]!=null ? equalShares[fid] : 1; }
+
+// Capture current form inputs into state so re-rendering does not lose them
+function snapshotExpenseForm(){
+  var g=id=>document.getElementById(id);
+  if(g('ied'))  edesc=g('ied').value;
+  if(g('iea'))  eamt=g('iea').value;
+  if(g('iep'))  epayer=g('iep').value;
+  if(g('iedate'))edate=g('iedate').value;
+  if(g('ietime'))etime=g('ietime').value;
+  if(g('iecat')) ecat=g('iecat').value;
+  if(g('iecur')) ecurrency=g('iecur').value;
+}
+
+function doChangeShare(fid, delta){
+  snapshotExpenseForm();
+  var n=shareOf(fid)+delta;
+  if(n<0) n=0;
+  if(n>20) n=20;
+  equalShares[fid]=n;
+  render();
+}
 
 // ============ CURRENCY ============
 const CURRENCIES = {
@@ -1033,9 +1056,15 @@ async function doAddExpense(){
   if(!desc||isNaN(amt)||amt<=0||!payer){toast('Fill all fields!');return;}
   _savingExpense=true;
   var split={};
+  var shareMap=null;
   if(esplit==='equal'){
     var per=amt/db.friends.length;
     db.friends.forEach(f=>split[f.id]=per);
+  }else if(esplit==='equal-share'){
+    var shareTot=db.friends.reduce((s,f)=>s+shareOf(f.id),0);
+    if(shareTot<=0){toast('Assign at least one share');_savingExpense=false;return;}
+    shareMap={};
+    db.friends.forEach(f=>{shareMap[f.id]=shareOf(f.id);split[f.id]=amt*shareOf(f.id)/shareTot;});
   }else if(esplit==='equal-exclude'){
     var included=db.friends.filter(f=>!equalExcluded[f.id]);
     if(!included.length){toast('Cannot exclude everyone!');_savingExpense=false;return;}
@@ -1057,11 +1086,11 @@ async function doAddExpense(){
   var expDatetime=(ed&&et)?new Date(ed+'T'+et).toISOString():ed?new Date(ed+'T00:00').toISOString():new Date().toISOString();
   if(editId){
     var idx=db.expenses.findIndex(e=>e.id===editId);
-    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency};
+    if(idx!==-1) db.expenses[idx]={...db.expenses[idx],description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency,shares:shareMap};
   }else{
-    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency});
+    db.expenses.push({id:'e'+Date.now(),description:desc,amount:amt,paidBy:payer,splitAmong:split,date:expDatetime,category:cat,currency:expCurrency,shares:shareMap});
   }
-  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';ecurrency='';csplitMode='amount';equalExcluded={};
+  modal=null;editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';ecurrency='';csplitMode='amount';equalExcluded={};equalShares={};
   _savingExpense=false;
   render();await saveTrip();
 }
@@ -1078,6 +1107,7 @@ function doEditExpense(id){
   var vals=Object.values(e.splitAmong);
   var eq=vals.length>1&&vals.every(v=>Math.abs(v-vals[0])<0.01);
   esplit=eq?'equal':'custom';
+  if(e.shares){ esplit='equal-share'; equalShares={...e.shares}; } else { equalShares={}; }
   csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));
   modal='expense';render();
   setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
@@ -1163,6 +1193,7 @@ function doSetSplit(t){
   var ded2=document.getElementById('iedate');if(ded2)edate=ded2.value;
   var det=document.getElementById('ietime');if(det)etime=det.value;
   var dec=document.getElementById('iecat');if(dec)ecat=dec.value;
+  snapshotExpenseForm();
   esplit=t; render(); setTimeout(()=>{if(t==='custom'||t==='equal-exclude')calcTotal();},50);
 }
 function doToggleSplitMode(mode){
@@ -1579,7 +1610,7 @@ function tabExp(bal){
   var h=`<div class="shd"><h2>Expenses</h2>
     <div style="display:flex;gap:6px">
       ${owner?`<button class="btn danger sm" onclick="doDeleteCurrentTrip()" title="Delete this story">🗑️</button>`:''}
-      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';csplitMode='amount';equalExcluded={};modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
+      <button class="btn primary sm" onclick="editId=null;edesc='';eamt='';epayer='';esplit='equal';csplits={};edate='';etime='';ecat='';csplitMode='amount';equalExcluded={};equalShares={};modal='expense';render();setTimeout(()=>{var e=document.getElementById('ied');if(e)e.focus();},100)" ${!db.friends.length?'disabled':''}>+ Add</button>
     </div>
   </div>
   <div class="fr-subtabs">
@@ -2680,6 +2711,31 @@ function mExpense(){
         <span style="font-weight:900;color:${includedCount>0?'#16a34a':'#ef4444'}">${includedCount} of ${db.friends.length} members</span>
       </div>
     </div>`;
+  } else if(esplit==='equal-share'){
+    var eaS=parseFloat(eamt)||0;
+    var shTot=db.friends.reduce((s,f)=>s+shareOf(f.id),0);
+    var perShare=shTot>0?eaS/shTot:0;
+    var symS=currencySymbol(ecurrency||userCurrency());
+    splitBox=`<div class="cbox">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:8px">SHARES PER PERSON:</div>
+      ${db.friends.map(f=>{
+        var n=shareOf(f.id);
+        var amtF=perShare*n;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">
+          <span style="font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button type="button" class="btn sm secondary" style="padding:3px 10px" onclick="doChangeShare('${f.id}',-1)">−</button>
+            <span style="min-width:22px;text-align:center;font-weight:900">${n}</span>
+            <button type="button" class="btn sm secondary" style="padding:3px 10px" onclick="doChangeShare('${f.id}',1)">+</button>
+            <span style="font-size:12px;font-weight:700;color:#d97706;min-width:72px;text-align:right">${eaS>0?symS+Math.round(amtF).toLocaleString('en-IN'):'—'}</span>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="ctot" style="margin-top:6px">
+        <span style="font-weight:700">Total shares:</span>
+        <span style="font-weight:900;color:${shTot>0?'#16a34a':'#ef4444'}">${shTot}</span>
+      </div>
+    </div>`;
   } else if(esplit==='custom'){
     splitBox=`<div class="cbox">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
@@ -2746,6 +2802,7 @@ function mExpense(){
       <div class="stgl" style="flex-wrap:wrap;gap:6px">
         <button class="btn sm ${esplit==='equal'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('equal')">⚖️ Equal</button>
         <button class="btn sm ${esplit==='equal-exclude'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('equal-exclude')">👥 Exclude</button>
+        <button class="btn sm ${esplit==='equal-share'?'primary':'secondary'}" style="flex:1;min-width:110px" onclick="doSetSplit('equal-share')">🧮 Equal & Share</button>
         <button class="btn sm ${esplit==='custom'?'primary':'secondary'}" style="flex:1;min-width:80px" onclick="doSetSplit('custom')">✏️ Custom</button>
       </div>
       ${splitBox}
