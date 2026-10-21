@@ -250,12 +250,12 @@ function doChangeShare(fid, delta){
   if(n<0) n=0;
   if(n>20) n=20;
   equalShares[fid]=n;
-  render();
+  render(); setTimeout(()=>calcTotal(),0);
 }
 
 // ============ CURRENCY ============
 const CURRENCIES = {
-  INR:'₹',  USD:'$',  EUR:'€',  GBP:'£',  SGD:'S$', AED:'AED ',
+  INR:'₹',  USD:'$',  EUR:'€',  GBP:'£',  SGD:'S$',
   JPY:'¥',  AUD:'A$', CAD:'C$', CHF:'Fr ', THB:'฿',  MYR:'RM ',
   HKD:'HK$',NZD:'NZ$',SEK:'kr ',NOK:'kr ',DKK:'kr '
 };
@@ -296,6 +296,57 @@ function fmt(amount, fromCur){
   return sym+converted.toLocaleString('en-IN',{minimumFractionDigits:decimals,maximumFractionDigits:decimals});
 }
 
+// ---- Preferred-currency preview (Add/Edit Expense) ----
+function prefRateText(cur){
+  var pref=userCurrency();
+  return '1 '+cur+' = '+currencySymbol(pref)+convertAmt(1,cur,pref).toFixed(2);
+}
+function prefNote(v,cur){
+  var pref=userCurrency();
+  if(!(v>0)||cur===pref||!Object.keys(exchangeRates).length) return '';
+  return ' <span style="color:#16a34a;font-size:10px;font-weight:700">≈ '+currencySymbol(pref)+Math.round(convertAmt(v,cur,pref)).toLocaleString('en-IN')+'</span>';
+}
+function refreshSplitPreview(){
+  var amtV=parseFloat((document.getElementById('iea')||{value:''}).value)||0;
+  var curEl=document.getElementById('iecur');
+  var cur=(curEl&&curEl.value)||ecurrency||userCurrency();
+  var symE=currencySymbol(cur);
+  var fmtE=v=>symE+Math.round(v).toLocaleString('en-IN');
+
+  var pv=document.getElementById('pv-total');
+  if(pv){
+    if(amtV>0&&cur!==userCurrency()){
+      pv.innerHTML=Object.keys(exchangeRates).length
+        ? '≈ <strong>'+currencySymbol(userCurrency())+Math.round(convertAmt(amtV,cur,userCurrency())).toLocaleString('en-IN')+'</strong> in '+userCurrency()+' <span style="color:#6b7280">(at '+prefRateText(cur)+')</span>'
+        : '<span style="color:#ef4444">Live exchange rate unavailable — amounts shown in '+cur+'</span>';
+    } else pv.innerHTML='';
+  }
+
+  if(esplit==='equal-exclude'){
+    var inc=db.friends.filter(f=>!equalExcluded[f.id]).length;
+    db.friends.forEach(f=>{
+      var el=document.getElementById('ea-'+f.id); if(!el) return;
+      var v=(!equalExcluded[f.id]&&inc>0)?amtV/inc:0;
+      el.innerHTML=v>0?fmtE(v)+prefNote(v,cur):'—';
+    });
+  }else if(esplit==='equal-share'){
+    var shTot=db.friends.reduce((s,f)=>s+shareOf(f.id),0);
+    db.friends.forEach(f=>{
+      var el=document.getElementById('sa-'+f.id); if(!el) return;
+      var v=shTot>0?amtV*shareOf(f.id)/shTot:0;
+      el.innerHTML=v>0?fmtE(v)+prefNote(v,cur):'—';
+    });
+  }else if(esplit==='custom'){
+    db.friends.forEach(f=>{
+      var el=document.getElementById('cr'+f.id); if(!el) return;
+      var inp=document.getElementById('cs'+f.id);
+      var raw=inp?(parseFloat(inp.value)||0):0;
+      var v=csplitMode==='percent'?amtV*raw/100:raw;
+      el.innerHTML=v>0?fmtE(v)+prefNote(v,cur):'';
+    });
+  }
+}
+
 async function loadExchangeRates(force){
   if(ratesLoading) return;
   var age=Date.now()-ratesLoadedAt;
@@ -303,7 +354,7 @@ async function loadExchangeRates(force){
   ratesLoading=true;
   try{
     // Frankfurter.app: free, no key, returns rates FROM base currency
-    var r=await fetch('https://api.frankfurter.app/latest?from=INR&to='+Object.keys(CURRENCIES).filter(c=>c!=='INR').join(','));
+    var r=await fetch('https://api.frankfurter.app/latest?from=INR');
     if(r.ok){
       var d=await r.json();
       if(d&&d.rates){ exchangeRates=d.rates; ratesLoadedAt=Date.now(); }
@@ -1110,7 +1161,7 @@ function doEditExpense(id){
   if(e.shares){ esplit='equal-share'; equalShares={...e.shares}; } else { equalShares={}; }
   csplits=eq?{}:Object.fromEntries(Object.entries(e.splitAmong).map(([k,v])=>[k,String(v)]));
   modal='expense';render();
-  setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}if(!eq)calcTotal();},100);
+  setTimeout(()=>{var el=document.getElementById('ied');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}calcTotal();},100);
 }
 // Mark paid state
 var _mpFrom='', _mpTo='', _mpOwed=0;
@@ -1163,6 +1214,7 @@ async function doCreateTrip(){
 function doSelectTrip(id){tripId=id;localStorage.setItem('px-trip',id);db={friends:[],expenses:[],settlements:[],meta:{}};modal=null;dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';tab='friends';render();loadTrip();loadMemories();loadGroups().then(render);}
 function doSwitchTrip(){tripId='';localStorage.removeItem('px-trip');db={friends:[],expenses:[],settlements:[],meta:{}};trips=[];dashLoaded=false;memories=[];memoriesLoaded=false;frSubTab='members';render();loadTrips();}
 function calcTotal(){
+  refreshSplitPreview();
   var ea=parseFloat((document.getElementById('iea')||{value:'0'}).value)||0;
   if(csplitMode==='percent'){
     // sum percentages, show live rupee equivalents
@@ -1172,7 +1224,7 @@ function calcTotal(){
       var pct=el?parseFloat(el.value)||0:0;
       totPct+=pct;
       var rv=document.getElementById('cr'+f.id);
-      if(rv) rv.textContent=ea>0?'= ₹'+Math.round(ea*pct/100):'';
+
     });
     var match=ea>0&&Math.abs(totPct-100)<0.01;
     var el=document.getElementById('ctot');
@@ -1194,7 +1246,7 @@ function doSetSplit(t){
   var det=document.getElementById('ietime');if(det)etime=det.value;
   var dec=document.getElementById('iecat');if(dec)ecat=dec.value;
   snapshotExpenseForm();
-  esplit=t; render(); setTimeout(()=>{if(t==='custom'||t==='equal-exclude')calcTotal();},50);
+  esplit=t; render(); setTimeout(()=>calcTotal(),50);
 }
 function doToggleSplitMode(mode){
   // Save current inputs before switching
@@ -2703,7 +2755,7 @@ function mExpense(){
             <span style="${excl?'text-decoration:line-through;color:#9ca3af':'font-weight:600'}">${f.name}</span>
           </label>
           <span style="font-size:12px;color:${excl?'#9ca3af':'#d97706'};font-weight:700;min-width:60px;text-align:right">
-            ${excl?'Excluded':eaV>0?'₹'+Math.round(perHead):'—'}
+            ${excl?'Excluded':`<span id="ea-${f.id}"></span>`}
           </span>
         </div>`;
       }).join('')}
@@ -2728,7 +2780,7 @@ function mExpense(){
             <button type="button" class="btn sm secondary" style="padding:3px 10px" onclick="doChangeShare('${f.id}',-1)">−</button>
             <span style="min-width:22px;text-align:center;font-weight:900">${n}</span>
             <button type="button" class="btn sm secondary" style="padding:3px 10px" onclick="doChangeShare('${f.id}',1)">+</button>
-            <span style="font-size:12px;font-weight:700;color:#d97706;min-width:72px;text-align:right">${eaS>0?symS+Math.round(amtF).toLocaleString('en-IN'):'—'}</span>
+            <span id="sa-${f.id}" style="font-size:12px;font-weight:700;color:#d97706;min-width:72px;text-align:right"></span>
           </div>
         </div>`;
       }).join('')}
@@ -2751,7 +2803,7 @@ function mExpense(){
       <div class="crow">
         <span>${f.name}</span>
         <div style="display:flex;align-items:center;gap:4px">
-          ${csplitMode==='percent'?`<span id="cr${f.id}" style="font-size:10px;color:#d97706;min-width:48px;text-align:right"></span>`:''}
+          <span id="cr${f.id}" style="font-size:10px;color:#d97706;text-align:right;white-space:nowrap"></span>
           <input id="cs${f.id}" class="ci" type="number" inputmode="decimal"
             placeholder="${csplitMode==='percent'?'0%':'0'}"
             value="${csplits[f.id]||''}" oninput="calcTotal()"
@@ -2774,7 +2826,7 @@ function mExpense(){
       <div style="display:flex;gap:8px">
         <div style="flex:1">
           <span class="lbl">Currency</span>
-          <select id="iecur" class="f" style="margin:0">
+          <select id="iecur" class="f" style="margin:0" onchange="calcTotal()">
             ${curOpts}
           </select>
         </div>
@@ -2783,6 +2835,7 @@ function mExpense(){
           <input id="iea" class="f" type="number" inputmode="decimal" placeholder="0" value="${eamt}" oninput="calcTotal()" style="margin:0">
         </div>
       </div>
+      <div id="pv-total" style="font-size:12px;margin:-4px 0 8px;min-height:16px"></div>
       <span class="lbl">Who Paid?</span>
       <select id="iep" class="f"><option value="">Select person</option>${opts}</select>
       <span class="lbl">Category</span>
