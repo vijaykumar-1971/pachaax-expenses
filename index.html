@@ -347,22 +347,86 @@ function refreshSplitPreview(){
   }
 }
 
+// ---- Exchange rates: fetched once per day, shared via Firebase, cached locally ----
+const FB_RATES = 'https://pachaax-expenses-default-rtdb.firebaseio.com/app_rates.json';
+// Tried in order; all are free, need no key, and return {rates:{USD:..,...}} relative to INR
+const RATE_SOURCES = [
+  'https://open.er-api.com/v6/latest/INR',
+  'https://api.frankfurter.dev/v1/latest?base=INR',
+  'https://api.frankfurter.app/latest?from=INR'
+];
+var ratesDate = '';  // YYYY-MM-DD of the rates currently in use
+
+function todayStr(){
+  var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function applyRates(rates, fetchedAt, date){
+  exchangeRates=rates;
+  ratesLoadedAt=fetchedAt||Date.now();
+  ratesDate=date||todayStr();
+  try{ localStorage.setItem('px-rates', JSON.stringify({rates, fetchedAt:ratesLoadedAt, date:ratesDate})); }catch(e){}
+}
+
+async function fetchRatesFromSources(){
+  for(var u of RATE_SOURCES){
+    try{
+      var r=await fetch(u);
+      if(!r.ok) continue;
+      var d=await r.json();
+      if(d&&d.rates&&d.rates.USD) return {rates:d.rates, source:u};
+    }catch(e){ /* try next source */ }
+  }
+  return null;
+}
+
 async function loadExchangeRates(force){
   if(ratesLoading) return;
-  var age=Date.now()-ratesLoadedAt;
-  if(!force && Object.keys(exchangeRates).length && age<3600000) return; // cache 1hr
   ratesLoading=true;
   try{
-    // Frankfurter.app: free, no key, returns rates FROM base currency
-    var r=await fetch('https://api.frankfurter.app/latest?from=INR');
-    if(r.ok){
-      var d=await r.json();
-      if(d&&d.rates){ exchangeRates=d.rates; ratesLoadedAt=Date.now(); }
+    var today=todayStr();
+
+    // 1. Use rates already in memory if they are from today
+    if(!force && ratesDate===today && Object.keys(exchangeRates).length){ return; }
+
+    // 2. Shared copy in Firebase (fetched by anyone today)
+    var stored=null;
+    try{ var sr=await fetch(FB_RATES); stored=sr.ok?await sr.json():null; }catch(e){}
+    if(!force && stored && stored.date===today && stored.rates){
+      applyRates(stored.rates, stored.fetchedAt, stored.date); return;
     }
-  }catch(e){ console.warn('Exchange rate fetch failed',e); }
-  ratesLoading=false;
-  render();
+
+    // 3. Fetch fresh rates and store them for everyone
+    var fresh=await fetchRatesFromSources();
+    if(fresh){
+      applyRates(fresh.rates, Date.now(), today);
+      try{
+        await fetch(FB_RATES,{method:'PUT',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({date:today, rates:fresh.rates, fetchedAt:ratesLoadedAt, source:fresh.source})});
+      }catch(e){}
+      return;
+    }
+
+    // 4. Offline or all sources down: use the newest copy we have (Firebase or this browser)
+    var local=null;
+    try{ local=JSON.parse(localStorage.getItem('px-rates')||'null'); }catch(e){}
+    var best=null;
+    if(stored&&stored.rates) best={rates:stored.rates, fetchedAt:stored.fetchedAt, date:stored.date};
+    if(local&&local.rates&&(!best||(local.fetchedAt||0)>(best.fetchedAt||0))) best=local;
+    if(best && !Object.keys(exchangeRates).length) applyRates(best.rates, best.fetchedAt, best.date);
+  }catch(e){ console.warn('Exchange rate load failed',e); }
+  finally{
+    ratesLoading=false;
+    // Don't wipe an open form; just refresh the preview if it is open
+    if(modal==='expense') refreshSplitPreview(); else render();
+  }
 }
+
+// Check once every 15 minutes whether the day has changed, and refresh rates if so
+setInterval(()=>{
+  if(currentUser && ratesDate!==todayStr()) loadExchangeRates();
+},15*60*1000);
 
 // --- AUTH ---
 let currentUser = JSON.parse(localStorage.getItem('px-user') || 'null');
@@ -3036,6 +3100,7 @@ async function doUpdateProfile(){
   if(currentUser){
     loadCategories();
     loadGroups();
+    try{ var lc=JSON.parse(localStorage.getItem('px-rates')||'null'); if(lc&&lc.rates) applyRates(lc.rates,lc.fetchedAt,lc.date); }catch(e){}
     loadExchangeRates();
     if(tripId){ loadTrip(); loadMemories(); } else loadTrips();
   }
