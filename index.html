@@ -1780,7 +1780,10 @@ function tabExp(bal){
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-          <div style="font-size:16px;font-weight:900;color:#d97706;white-space:nowrap">${totalTxt}</div>
+          <div style="display:flex;align-items:baseline;gap:6px;white-space:nowrap">
+            ${(e.currency||'INR')!==userCurrency()?`<span style="font-size:10px;color:#6b7280;font-weight:700">${totalTxt}</span>`:''}
+            <span style="font-size:17px;font-weight:900;color:#d97706">${fmt(e.amount,e.currency)}</span>
+          </div>
           <button class="ebtn" onclick="doEditExpense('${e.id}')">✏️</button>
           <button class="dbtn" onclick="doDelExpense('${e.id}')">✕</button>
         </div>
