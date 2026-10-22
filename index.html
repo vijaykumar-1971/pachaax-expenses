@@ -1764,7 +1764,10 @@ function tabExp(bal){
     </div>`:''}
   </div>`;
   h+=db.expenses.map(e=>{
-    var tags=Object.entries(e.splitAmong).filter(([,a])=>a>0).map(([id,a])=>`<span class="tag">${gname(id)}: ${fmt(a,e.currency)}</span>`).join('');
+    var shareEntries=Object.entries(e.splitAmong).filter(([,a])=>a>0);
+    var tfs=shareEntries.length<=3?11:shareEntries.length<=5?10:9;
+    var curCode=e.currency||'INR';
+    var tags=shareEntries.map(([id,a])=>`<span class="tag" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:${tfs}px;padding:2px 4px;text-align:center">${gname(id)}: ${curCode} ${a.toLocaleString('en-IN',{maximumFractionDigits:2})}</span>`).join('');
     var expDt=e.date?new Date(e.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'';
     var catBadge=e.category?`<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;margin-left:5px">🏷️ ${e.category}</span>`:'';
     var curBadge=e.currency&&e.currency!==userCurrency()?`<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:12px;font-size:9px;font-weight:700;margin-left:4px">${e.currency}</span>`:'';
@@ -1783,7 +1786,7 @@ function tabExp(bal){
           <button class="dbtn" onclick="doDelExpense('${e.id}')">✕</button>
         </div>
       </div>
-      <div class="tags">${tags}</div>
+      <div class="tags" style="flex-wrap:nowrap;gap:4px">${tags}</div>
     </div>`;
   }).join('');
   return h;
