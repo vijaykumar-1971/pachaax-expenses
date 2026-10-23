@@ -1325,13 +1325,11 @@ function doToggleSplitMode(mode){
   render(); setTimeout(()=>calcTotal(),50);
 }
 function doToggleExclude(fid){
-  // Read current modal state
-  var ded=document.getElementById('ied');if(ded)edesc=ded.value;
-  var dea=document.getElementById('iea');if(dea)eamt=dea.value;
-  var dep=document.getElementById('iep');if(dep)epayer=dep.value;
+  snapshotExpenseForm();
   if(equalExcluded[fid]) delete equalExcluded[fid];
   else equalExcluded[fid]=true;
   render();
+  setTimeout(()=>calcTotal(),0); // refill per-person amounts after redraw
 }
 
 // ============ CATEGORY MANAGEMENT (app-level, admin only) ============
