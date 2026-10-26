@@ -1555,6 +1555,7 @@ function render(){
       </div>
       <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div style="display:flex;gap:4px;align-items:center">
+          <button class="rbtn" onclick="modal='guide';render()" title="User Guide">❓</button>
           <button class="rbtn" onclick="loadTrip()" title="Refresh">🔄</button>
           ${owner?`<button class="rbtn" onclick="modal='access';render()" title="Manage Access">🔑</button>`:''}
           <button class="rbtn" onclick="doSwitchTrip()" title="Switch Story">🔀</button>
@@ -1582,7 +1583,7 @@ function render(){
     ${adminTabHtml}
   </div>
   <div class="wrap">${body}</div>
-  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():modal==='profile'?mProfile():modal==='setbudget'?mSetBudget():''}
+  ${modal==='friend'?mFriend():modal==='markpaid'?mMarkPaid():modal==='expense'?mExpense():modal==='access'?mAccess():modal==='group'?mGroup():modal==='editmemory'?mEditMemory():modal==='share'?mShare():modal==='profile'?mProfile():modal==='setbudget'?mSetBudget():modal==='guide'?mGuide():''}
   <div class="foot">💡 ${tripId} · Syncs every 10s · ${currentUser.email}</div>`;
 }
 
@@ -2712,6 +2713,123 @@ function tabMemories(){
   }
   h+=`<div id="mem-list">${renderMemoryCards()}</div>`;
   return h;
+}
+
+// ============ USER GUIDE ============
+function mGuide(){
+  var P=t=>`<p style="margin:0 0 6px">${t}</p>`;
+  var UL=items=>`<ul style="margin:0 0 6px 18px;padding:0">${items.map(i=>`<li style="margin-bottom:3px">${i}</li>`).join('')}</ul>`;
+  var D=(title,body,open)=>`<details ${open?'open':''} style="border:2px solid #fed7aa;border-radius:10px;padding:9px 12px;margin-bottom:8px;background:white">
+    <summary style="font-weight:900;font-size:13px;color:#92400e;cursor:pointer">${title}</summary>
+    <div style="font-size:12px;color:#374151;line-height:1.55;margin-top:8px">${body}</div>
+  </details>`;
+
+  return `<div class="overlay" onclick="modal=null;render()">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:480px">
+      <h3>❓ User Guide</h3>
+      <p style="font-size:11px;color:#6b7280;margin:-6px 0 12px">Tap a section to open it. Use the ❓ icon at the top anytime to come back here.</p>
+
+      ${D('🚀 Getting Started', `
+        ${UL([
+          'Register with your name, email and a password (6+ characters). An OTP is emailed to you; enter it to activate your account.',
+          'The first account registered becomes <strong>Admin</strong>.',
+          'Forgot your password? Use <strong>Forgot password</strong> on the login screen and enter the OTP sent to your email.',
+          'After login you land on the Story screen. Create a story or open one from the list.'
+        ])}`, true)}
+
+      ${D('📖 Stories', `
+        ${P('A <strong>story</strong> is a trip or group of shared expenses, for example "Goa Trip 2026".')}
+        ${UL([
+          '<strong>Create:</strong> enter a story name, purpose and start date, then tap <em>Start Story</em>. You become its owner.',
+          '<strong>Switch:</strong> tap 🔀 in the top ribbon to go back to the story list.',
+          '<strong>Share access:</strong> owners tap 🔑 to give other registered users access by email, or by a group.',
+          '<strong>Delete:</strong> owners can delete a story with the 🗑️ button in the Expenses tab.'
+        ])}`)}
+
+      ${D('👥 Friends Tab', `
+        ${UL([
+          '<strong>Members:</strong> tap <em>+ Add Friend</em> to add a person by name. Use ✕ to remove someone (not possible if they have expenses). The story owner cannot be removed.',
+          '<strong>Share</strong> shows each person’s total share of all expenses. <strong>Gets back / Owes</strong> shows where they stand after payments.',
+          '<strong>My Groups:</strong> create a group of emails (for example your family) and tap <em>Grant Story Access</em> to add them to this story in one go.'
+        ])}`)}
+
+      ${D('💸 Adding an Expense', `
+        ${P('Open the <strong>Expenses</strong> tab and tap <strong>+ Add</strong>. Fill in:')}
+        ${UL([
+          '<strong>Description</strong>, <strong>Currency</strong> and <strong>Amount</strong>.',
+          '<strong>Who Paid</strong>, optional <strong>Category</strong>, and <strong>Date / Time</strong>.',
+          '<strong>Split type:</strong> pick one of the four buttons below.'
+        ])}
+        ${UL([
+          '<strong>⚖️ Equal:</strong> split evenly among all members.',
+          '<strong>👥 Exclude:</strong> split evenly, but untick members who should not pay.',
+          '<strong>🧮 Share:</strong> give people different numbers of shares (for example 2 shares for a couple, 1 for a child). Total shares must equal the number of members, or Add is disabled.',
+          '<strong>✏️ Custom:</strong> enter exact amounts per person, or switch to % and enter percentages that add up to 100.'
+        ])}
+        ${P('Use ✏️ on an expense to edit it and ✕ to delete it. Amounts that do not add up to the total are not saved.')}`)}
+
+      ${D('🌍 Multiple Currencies', `
+        ${UL([
+          'Choose any currency when adding an expense. The rate box shows today’s rate and the converted total.',
+          'Each split is also shown in your preferred currency.',
+          'Set your preferred currency in <strong>My Profile</strong> (tap your initials, top right). All totals, balances and settlements are shown in it.',
+          'Rates update once a day automatically.'
+        ])}`)}
+
+      ${D('📊 Budget (Expenses → Budget)', `
+        ${UL([
+          'Shows spending per category against a planned budget.',
+          'Owners and admins tap ✏️ on a category to set its budget.',
+          'Categories are maintained by the admin (👑 Admin → Categories).'
+        ])}`)}
+
+      ${D('🤝 Settle Up', `
+        ${UL([
+          '<strong>Current Balances</strong> shows who is owed or owes money after payments.',
+          '<strong>Payments to Make</strong> lists who should pay whom. Tap <em>Pay UPI</em> to open your UPI app with the amount filled in.',
+          'After paying, tap <em>Mark Paid</em> and enter the amount (full or partial). The list updates automatically.',
+          '<strong>Payment History</strong> lists every recorded payment. Use ↩️ Undo to reverse a mistake.'
+        ])}`)}
+
+      ${D('📝 Memories', `
+        ${P('Write notes or favourite moments from the story. Everyone with access can read them. You can edit or delete your own memories.')}`)}
+
+      ${D('📤 Summary & Sharing', `
+        ${UL([
+          'The <strong>Summary</strong> tab shows your overall totals across all stories and a card per story.',
+          'Tap <em>Export &amp; Share</em> on a story to:',
+        ])}
+        ${UL([
+          '<strong>Download CSV</strong>: full report for Excel or Google Sheets.',
+          '<strong>Share as Text</strong>: a short settle-up message for WhatsApp, SMS or email.',
+          '<strong>Share with Pay UPI Buttons</strong>: a web page with tap-to-pay buttons.'
+        ])}`)}
+
+      ${D('👤 My Profile', `
+        ${UL([
+          'Tap your initials (top right) to change your display name and preferred currency.',
+          'Changing your name also updates it in the stories you are part of.'
+        ])}`)}
+
+      ${D('👑 Admin (admins only)', `
+        ${UL([
+          '<strong>Users:</strong> verify new sign-ups, ban or unban users, make someone admin, or delete an account.',
+          '<strong>Stories:</strong> see all stories and delete any of them.',
+          '<strong>Categories:</strong> add or remove the expense categories available to everyone.'
+        ])}`)}
+
+      ${D('💡 Good to Know', `
+        ${UL([
+          'The app syncs every 10 seconds. Tap 🔄 in the top ribbon to refresh immediately.',
+          'The sync status under the title shows when data was last saved or loaded.',
+          'Use 🔀 to switch stories and ⏏️ to log out.'
+        ])}`)}
+
+      <div class="mbtns" style="margin-top:6px">
+        <button class="btn primary" onclick="modal=null;render()">Got it</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ============ GROUP MODAL ============
