@@ -2715,118 +2715,415 @@ function tabMemories(){
   return h;
 }
 
-// ============ USER GUIDE ============
+// ============ USER GUIDE (multilingual) ============
+var guideLang = localStorage.getItem('px-guide-lang') || 'en';
+var GUIDE_LANGS = {en:'English', hi:'हिन्दी', es:'Español', fr:'Français', kn:'ಕನ್ನಡ'};
+function setGuideLang(l){ guideLang=l; localStorage.setItem('px-guide-lang', l); render(); }
+
+var GUIDE_TEXT = {
+en: {
+  title:'User Guide',
+  intro:'Tap a section to open it. Use the ❓ icon at the top anytime to come back here.',
+  close:'Got it',
+  sections:[
+    {t:'🚀 Getting Started', open:true, b:[
+      'Register with your name, email and a password (6+ characters). An OTP is emailed to you; enter it to activate your account.',
+      ['The first account registered becomes <strong>Admin</strong>.',
+       'Forgot your password? Use <strong>Forgot password</strong> on the login screen and enter the OTP sent to your email.',
+       'After login you land on the Story screen. Create a story or open one from the list.']
+    ]},
+    {t:'📖 Stories', b:[
+      'A <strong>story</strong> is a trip or group of shared expenses, for example "Goa Trip 2026".',
+      ['<strong>Create:</strong> enter a story name, purpose and start date, then tap <em>Start Story</em>. You become its owner.',
+       '<strong>Switch:</strong> tap 🔀 in the top ribbon to go back to the story list.',
+       '<strong>Share access:</strong> owners tap 🔑 to give other registered users access by email, or by a group.',
+       '<strong>Delete:</strong> owners can delete a story with the 🗑️ button in the Expenses tab.']
+    ]},
+    {t:'👥 Friends Tab', b:[
+      ['<strong>Members:</strong> tap <em>+ Add Friend</em> to add a person by name. Use ✕ to remove someone (not possible if they have expenses). The story owner cannot be removed.',
+       '<strong>Share</strong> shows each person’s total share of all expenses. <strong>Gets back / Owes</strong> shows where they stand after payments.',
+       '<strong>My Groups:</strong> create a group of emails (for example your family) and tap <em>Grant Story Access</em> to add them to this story in one go.']
+    ]},
+    {t:'💸 Adding an Expense', b:[
+      'Open the <strong>Expenses</strong> tab and tap <strong>+ Add</strong>. Fill in:',
+      ['<strong>Description</strong>, <strong>Currency</strong> and <strong>Amount</strong>.',
+       '<strong>Who Paid</strong>, optional <strong>Category</strong>, and <strong>Date / Time</strong>.',
+       '<strong>Split type:</strong> pick one of the four buttons below.'],
+      ['<strong>⚖️ Equal:</strong> split evenly among all members.',
+       '<strong>👥 Exclude:</strong> split evenly, but untick members who should not pay.',
+       '<strong>🧮 Share:</strong> give people different numbers of shares (for example 2 shares for a couple, 1 for a child). Total shares must equal the number of members, or Add is disabled.',
+       '<strong>✏️ Custom:</strong> enter exact amounts per person, or switch to % and enter percentages that add up to 100.'],
+      'Use ✏️ on an expense to edit it and ✕ to delete it. Amounts that do not add up to the total are not saved.'
+    ]},
+    {t:'🌍 Multiple Currencies', b:[
+      ['Choose any currency when adding an expense. The rate box shows today’s rate and the converted total.',
+       'Each split is also shown in your preferred currency.',
+       'Set your preferred currency in <strong>My Profile</strong> (tap your initials, top right). All totals, balances and settlements are shown in it.',
+       'Rates update once a day automatically.']
+    ]},
+    {t:'📊 Budget (Expenses → Budget)', b:[
+      ['Shows spending per category against a planned budget.',
+       'Owners and admins tap ✏️ on a category to set its budget.',
+       'Categories are maintained by the admin (👑 Admin → Categories).']
+    ]},
+    {t:'🤝 Settle Up', b:[
+      ['<strong>Current Balances</strong> shows who is owed or owes money after payments.',
+       '<strong>Payments to Make</strong> lists who should pay whom. Tap <em>Pay UPI</em> to open your UPI app with the amount filled in.',
+       'After paying, tap <em>Mark Paid</em> and enter the amount (full or partial). The list updates automatically.',
+       '<strong>Payment History</strong> lists every recorded payment. Use ↩️ Undo to reverse a mistake.']
+    ]},
+    {t:'📝 Memories', b:[
+      'Write notes or favourite moments from the story. Everyone with access can read them. You can edit or delete your own memories.'
+    ]},
+    {t:'📤 Summary & Sharing', b:[
+      ['The <strong>Summary</strong> tab shows your overall totals across all stories and a card per story.',
+       'Tap <em>Export &amp; Share</em> on a story to:'],
+      ['<strong>Download CSV:</strong> full report for Excel or Google Sheets.',
+       '<strong>Share as Text:</strong> a short settle-up message for WhatsApp, SMS or email.',
+       '<strong>Share with Pay UPI Buttons:</strong> a web page with tap-to-pay buttons.']
+    ]},
+    {t:'👤 My Profile', b:[
+      ['Tap your initials (top right) to change your display name and preferred currency.',
+       'Changing your name also updates it in the stories you are part of.']
+    ]},
+    {t:'👑 Admin (admins only)', b:[
+      ['<strong>Users:</strong> verify new sign-ups, ban or unban users, make someone admin, or delete an account.',
+       '<strong>Stories:</strong> see all stories and delete any of them.',
+       '<strong>Categories:</strong> add or remove the expense categories available to everyone.']
+    ]},
+    {t:'💡 Good to Know', b:[
+      ['The app updates automatically every 10 seconds.',
+       'Switch stories with 🔀 and log out with ⏏️.']
+    ]}
+  ]
+},
+hi: {
+  title:'उपयोगकर्ता गाइड',
+  intro:'किसी भी भाग को खोलने के लिए उस पर टैप करें। ऊपर ❓ आइकन से कभी भी यहाँ वापस आएँ।',
+  close:'समझ गया',
+  sections:[
+    {t:'🚀 शुरुआत करें', open:true, b:[
+      'नाम, ईमेल और पासवर्ड (6+ अक्षर) से रजिस्टर करें। आपके ईमेल पर OTP भेजा जाता है; खाता सक्रिय करने के लिए उसे दर्ज करें।',
+      ['सबसे पहले रजिस्टर होने वाला खाता <strong>एडमिन</strong> बन जाता है।',
+       'पासवर्ड भूल गए? लॉगिन स्क्रीन पर <strong>Forgot password</strong> चुनें और ईमेल पर आया OTP दर्ज करें।',
+       'लॉगिन के बाद आप स्टोरी स्क्रीन पर पहुँचते हैं। स्टोरी बनाएँ या सूची से कोई खोलें।']
+    ]},
+    {t:'📖 स्टोरी', b:[
+      '<strong>स्टोरी</strong> किसी यात्रा या साझा खर्चों के समूह को कहते हैं, जैसे "गोवा ट्रिप 2026"।',
+      ['<strong>बनाएँ:</strong> स्टोरी का नाम, उद्देश्य और शुरुआती तारीख दर्ज करके <em>Start Story</em> दबाएँ। आप उसके मालिक बन जाते हैं।',
+       '<strong>बदलें:</strong> ऊपर की पट्टी में 🔀 दबाकर स्टोरी सूची पर लौटें।',
+       '<strong>एक्सेस दें:</strong> मालिक 🔑 दबाकर ईमेल या ग्रुप से दूसरे रजिस्टर्ड उपयोगकर्ताओं को एक्सेस दे सकते हैं।',
+       '<strong>हटाएँ:</strong> मालिक Expenses टैब में 🗑️ बटन से स्टोरी हटा सकते हैं।']
+    ]},
+    {t:'👥 फ्रेंड्स टैब', b:[
+      ['<strong>सदस्य:</strong> नाम से व्यक्ति जोड़ने के लिए <em>+ Add Friend</em> दबाएँ। ✕ से किसी को हटाएँ (जिसके खर्च हों उसे नहीं हटा सकते)। स्टोरी के मालिक को हटाया नहीं जा सकता।',
+       '<strong>Share</strong> हर व्यक्ति का सारे खर्चों में कुल हिस्सा दिखाता है। <strong>Gets back / Owes</strong> भुगतान के बाद उनकी स्थिति बताता है।',
+       '<strong>My Groups:</strong> ईमेल का ग्रुप बनाएँ (जैसे परिवार) और <em>Grant Story Access</em> दबाकर सबको एक साथ स्टोरी में जोड़ें।']
+    ]},
+    {t:'💸 खर्च जोड़ना', b:[
+      '<strong>Expenses</strong> टैब खोलें और <strong>+ Add</strong> दबाएँ। भरें:',
+      ['<strong>विवरण</strong>, <strong>मुद्रा</strong> और <strong>राशि</strong>।',
+       '<strong>किसने भुगतान किया</strong>, वैकल्पिक <strong>श्रेणी</strong>, और <strong>तारीख / समय</strong>।',
+       '<strong>बँटवारे का प्रकार:</strong> नीचे दिए चार बटनों में से एक चुनें।'],
+      ['<strong>⚖️ Equal:</strong> सभी सदस्यों में बराबर बाँटें।',
+       '<strong>👥 Exclude:</strong> बराबर बाँटें, पर जिन्हें भुगतान नहीं करना उनका निशान हटाएँ।',
+       '<strong>🧮 Share:</strong> लोगों को अलग-अलग शेयर दें (जैसे जोड़े को 2, बच्चे को 1)। कुल शेयर सदस्यों की संख्या के बराबर होने चाहिए, नहीं तो Add बंद रहेगा।',
+       '<strong>✏️ Custom:</strong> हर व्यक्ति की सटीक राशि दर्ज करें, या % चुनकर कुल 100 प्रतिशत के प्रतिशत भरें।'],
+      'खर्च बदलने के लिए ✏️ और हटाने के लिए ✕ दबाएँ। जिन राशियों का योग कुल राशि के बराबर न हो, वे सेव नहीं होतीं।'
+    ]},
+    {t:'🌍 कई मुद्राएँ', b:[
+      ['चुनी गई मुद्रा में खर्च जोड़ें। रेट बॉक्स आज की दर और परिवर्तित राशि दिखाता है।',
+       'हर हिस्सा आपकी पसंदीदा मुद्रा में भी दिखता है।',
+       '<strong>My Profile</strong> (ऊपर दाएँ अपने अक्षरों पर दबाएँ) में पसंदीदा मुद्रा सेट करें। सभी कुल, बैलेंस और भुगतान उसी में दिखते हैं।',
+       'दरें हर दिन अपने-आप अपडेट होती हैं।']
+    ]},
+    {t:'📊 बजट (Expenses → Budget)', b:[
+      ['श्रेणी के अनुसार खर्च और तय बजट दिखाता है।',
+       'मालिक और एडमिन किसी श्रेणी पर ✏️ दबाकर बजट तय कर सकते हैं।',
+       'श्रेणियाँ एडमिन (👑 Admin → Categories) द्वारा तय की जाती हैं।']
+    ]},
+    {t:'🤝 हिसाब चुकाएँ', b:[
+      ['<strong>Current Balances</strong> भुगतान के बाद बताता है कि कौन किसे देगा या किससे लेना है।',
+       '<strong>Payments to Make</strong> बताता है कौन किसे भुगतान करे। <em>Pay UPI</em> दबाने पर राशि भरे हुए UPI ऐप में खुलती है।',
+       'भुगतान के बाद <em>Mark Paid</em> दबाएँ और राशि (पूरी या आंशिक) दर्ज करें। सूची अपने-आप अपडेट होती है।',
+       '<strong>Payment History</strong> में सभी दर्ज भुगतान दिखते हैं। गलती हो तो ↩️ Undo से उसे पलटें।']
+    ]},
+    {t:'📝 यादें', b:[
+      'स्टोरी की बातें या यादगार पल लिखें। जिनके पास एक्सेस है वे सब पढ़ सकते हैं। आप अपनी यादें संपादित या हटा सकते हैं।'
+    ]},
+    {t:'📤 सारांश और शेयरिंग', b:[
+      ['<strong>Summary</strong> टैब सभी स्टोरी का कुल हिसाब और हर स्टोरी का कार्ड दिखाता है।',
+       'किसी स्टोरी पर <em>Export &amp; Share</em> दबाएँ:'],
+      ['<strong>CSV डाउनलोड करें:</strong> Excel या Google Sheets के लिए पूरी रिपोर्ट।',
+       '<strong>Share as Text:</strong> WhatsApp, SMS या ईमेल के लिए छोटा संदेश।',
+       '<strong>Share with Pay UPI Buttons:</strong> टैप करके भुगतान वाले बटन सहित वेब पेज।']
+    ]},
+    {t:'👤 मेरी प्रोफ़ाइल', b:[
+      ['ऊपर दाएँ अपने अक्षरों पर दबाकर नाम और पसंदीदा मुद्रा बदलें।',
+       'नाम बदलने पर वह उन सभी स्टोरी में भी अपडेट होता है जिनमें आप हैं।']
+    ]},
+    {t:'👑 एडमिन (केवल एडमिन के लिए)', b:[
+      ['<strong>Users:</strong> नए साइन-अप सत्यापित करें, उपयोगकर्ताओं को बैन या अनबैन करें, किसी को एडमिन बनाएँ, या खाता हटाएँ।',
+       '<strong>Stories:</strong> सभी स्टोरी देखें और कोई भी हटाएँ।',
+       '<strong>Categories:</strong> सभी के लिए खर्च की श्रेणियाँ जोड़ें या हटाएँ।']
+    ]},
+    {t:'💡 जानना ज़रूरी है', b:[
+      ['ऐप हर 10 सेकंड में अपने-आप अपडेट होता है।',
+       'स्टोरी बदलने के लिए 🔀 और लॉग आउट के लिए ⏏️ दबाएँ।']
+    ]}
+  ]
+},
+es: {
+  title:'Guía de usuario',
+  intro:'Toca una sección para abrirla. Usa el icono ❓ de arriba en cualquier momento para volver aquí.',
+  close:'Entendido',
+  sections:[
+    {t:'🚀 Primeros pasos', open:true, b:[
+      'Regístrate con tu nombre, correo y una contraseña (6 o más caracteres). Se envía un código OTP a tu correo; introdúcelo para activar tu cuenta.',
+      ['La primera cuenta registrada se convierte en <strong>Admin</strong>.',
+       '¿Olvidaste tu contraseña? Usa <strong>Forgot password</strong> en la pantalla de inicio y escribe el OTP enviado a tu correo.',
+       'Tras iniciar sesión verás la pantalla de Historias. Crea una historia o abre una de la lista.']
+    ]},
+    {t:'📖 Historias', b:[
+      'Una <strong>historia</strong> es un viaje o grupo de gastos compartidos, por ejemplo "Viaje a Goa 2026".',
+      ['<strong>Crear:</strong> escribe el nombre, el propósito y la fecha de inicio, y pulsa <em>Start Story</em>. Tú eres su propietario.',
+       '<strong>Cambiar:</strong> pulsa 🔀 en la barra superior para volver a la lista.',
+       '<strong>Compartir acceso:</strong> los propietarios pulsan 🔑 para dar acceso a otros usuarios registrados, por correo o por grupo.',
+       '<strong>Eliminar:</strong> los propietarios pueden borrar una historia con el botón 🗑️ de la pestaña Gastos.']
+    ]},
+    {t:'👥 Pestaña Amigos', b:[
+      ['<strong>Miembros:</strong> pulsa <em>+ Add Friend</em> para añadir a alguien por nombre. Usa ✕ para quitar a alguien (no es posible si tiene gastos). El propietario no se puede quitar.',
+       '<strong>Share</strong> muestra la parte total de cada persona en todos los gastos. <strong>Gets back / Owes</strong> muestra su situación tras los pagos.',
+       '<strong>Mis grupos:</strong> crea un grupo de correos (por ejemplo tu familia) y pulsa <em>Grant Story Access</em> para añadirlos a la historia de una vez.']
+    ]},
+    {t:'💸 Añadir un gasto', b:[
+      'Abre la pestaña <strong>Gastos</strong> y pulsa <strong>+ Add</strong>. Completa:',
+      ['<strong>Descripción</strong>, <strong>Moneda</strong> e <strong>Importe</strong>.',
+       '<strong>Quién pagó</strong>, <strong>Categoría</strong> (opcional) y <strong>Fecha / Hora</strong>.',
+       '<strong>Tipo de reparto:</strong> elige uno de los cuatro botones.'],
+      ['<strong>⚖️ Equal:</strong> reparte a partes iguales entre todos.',
+       '<strong>👥 Exclude:</strong> reparte a partes iguales, pero desmarca a quienes no deben pagar.',
+       '<strong>🧮 Share:</strong> asigna un número distinto de partes a cada persona (por ejemplo 2 a una pareja y 1 a un niño). El total de partes debe igualar el número de miembros, o Add quedará desactivado.',
+       '<strong>✏️ Custom:</strong> introduce importes exactos por persona, o cambia a % e introduce porcentajes que sumen 100.'],
+      'Usa ✏️ para editar un gasto y ✕ para borrarlo. Los importes que no suman el total no se guardan.'
+    ]},
+    {t:'🌍 Varias monedas', b:[
+      ['Elige cualquier moneda al añadir un gasto. El recuadro de tipo de cambio muestra el tipo de hoy y el total convertido.',
+       'Cada parte también se muestra en tu moneda preferida.',
+       'Define tu moneda preferida en <strong>Mi perfil</strong> (pulsa tus iniciales, arriba a la derecha). Todos los totales, saldos y pagos se muestran en ella.',
+       'Los tipos de cambio se actualizan automáticamente cada día.']
+    ]},
+    {t:'📊 Presupuesto (Gastos → Presupuesto)', b:[
+      ['Muestra el gasto por categoría frente al presupuesto previsto.',
+       'Propietarios y administradores pulsan ✏️ en una categoría para fijar su presupuesto.',
+       'Las categorías las gestiona el administrador (👑 Admin → Categories).']
+    ]},
+    {t:'🤝 Liquidar cuentas', b:[
+      ['<strong>Current Balances</strong> muestra quién debe o a quién le deben dinero tras los pagos.',
+       '<strong>Payments to Make</strong> indica quién debe pagar a quién. Pulsa <em>Pay UPI</em> para abrir tu app UPI con el importe ya rellenado.',
+       'Tras pagar, pulsa <em>Mark Paid</em> e introduce el importe (total o parcial). La lista se actualiza sola.',
+       '<strong>Payment History</strong> recoge todos los pagos registrados. Usa ↩️ Undo para revertir un error.']
+    ]},
+    {t:'📝 Recuerdos', b:[
+      'Escribe notas o momentos favoritos de la historia. Todos los que tengan acceso pueden leerlos. Puedes editar o borrar tus propios recuerdos.'
+    ]},
+    {t:'📤 Resumen y compartir', b:[
+      ['La pestaña <strong>Summary</strong> muestra tus totales de todas las historias y una tarjeta por historia.',
+       'Pulsa <em>Export &amp; Share</em> en una historia para:'],
+      ['<strong>Descargar CSV:</strong> informe completo para Excel o Google Sheets.',
+       '<strong>Share as Text:</strong> mensaje breve de liquidación para WhatsApp, SMS o correo.',
+       '<strong>Share with Pay UPI Buttons:</strong> página web con botones de pago UPI.']
+    ]},
+    {t:'👤 Mi perfil', b:[
+      ['Pulsa tus iniciales (arriba a la derecha) para cambiar tu nombre y tu moneda preferida.',
+       'Si cambias tu nombre, también se actualiza en las historias en las que participas.']
+    ]},
+    {t:'👑 Admin (solo administradores)', b:[
+      ['<strong>Users:</strong> verifica nuevos registros, bloquea o desbloquea usuarios, nombra administradores o elimina cuentas.',
+       '<strong>Stories:</strong> consulta todas las historias y elimina cualquiera.',
+       '<strong>Categories:</strong> añade o quita las categorías de gasto disponibles para todos.']
+    ]},
+    {t:'💡 Bueno saber', b:[
+      ['La app se actualiza automáticamente cada 10 segundos.',
+       'Cambia de historia con 🔀 y cierra sesión con ⏏️.']
+    ]}
+  ]
+},
+fr: {
+  title:'Guide de l’utilisateur',
+  intro:'Appuyez sur une section pour l’ouvrir. Utilisez l’icône ❓ en haut à tout moment pour revenir ici.',
+  close:'Compris',
+  sections:[
+    {t:'🚀 Pour commencer', open:true, b:[
+      'Inscrivez-vous avec votre nom, votre e-mail et un mot de passe (6 caractères minimum). Un code OTP vous est envoyé par e-mail ; saisissez-le pour activer votre compte.',
+      ['Le premier compte inscrit devient <strong>Admin</strong>.',
+       'Mot de passe oublié ? Utilisez <strong>Forgot password</strong> sur l’écran de connexion et saisissez le code OTP reçu par e-mail.',
+       'Après la connexion, vous arrivez sur l’écran des Histoires. Créez une histoire ou ouvrez-en une dans la liste.']
+    ]},
+    {t:'📖 Histoires', b:[
+      'Une <strong>histoire</strong> est un voyage ou un groupe de dépenses partagées, par exemple « Voyage à Goa 2026 ».',
+      ['<strong>Créer :</strong> saisissez le nom, l’objectif et la date de début, puis appuyez sur <em>Start Story</em>. Vous en devenez le propriétaire.',
+       '<strong>Changer :</strong> appuyez sur 🔀 dans la barre supérieure pour revenir à la liste.',
+       '<strong>Partager l’accès :</strong> les propriétaires appuient sur 🔑 pour donner accès à d’autres utilisateurs inscrits, par e-mail ou par groupe.',
+       '<strong>Supprimer :</strong> les propriétaires peuvent supprimer une histoire avec le bouton 🗑️ de l’onglet Dépenses.']
+    ]},
+    {t:'👥 Onglet Amis', b:[
+      ['<strong>Membres :</strong> appuyez sur <em>+ Add Friend</em> pour ajouter une personne par son nom. Utilisez ✕ pour retirer quelqu’un (impossible s’il a des dépenses). Le propriétaire ne peut pas être retiré.',
+       '<strong>Share</strong> affiche la part totale de chacun dans toutes les dépenses. <strong>Gets back / Owes</strong> indique sa situation après les paiements.',
+       '<strong>Mes groupes :</strong> créez un groupe d’e-mails (par exemple votre famille) et appuyez sur <em>Grant Story Access</em> pour les ajouter tous à l’histoire d’un coup.']
+    ]},
+    {t:'💸 Ajouter une dépense', b:[
+      'Ouvrez l’onglet <strong>Dépenses</strong> et appuyez sur <strong>+ Add</strong>. Renseignez :',
+      ['<strong>Description</strong>, <strong>Devise</strong> et <strong>Montant</strong>.',
+       '<strong>Qui a payé</strong>, <strong>Catégorie</strong> (facultatif) et <strong>Date / Heure</strong>.',
+       '<strong>Type de répartition :</strong> choisissez l’un des quatre boutons.'],
+      ['<strong>⚖️ Equal :</strong> répartition égale entre tous.',
+       '<strong>👥 Exclude :</strong> répartition égale, mais décochez ceux qui ne doivent pas payer.',
+       '<strong>🧮 Share :</strong> attribuez un nombre de parts différent à chacun (par exemple 2 pour un couple, 1 pour un enfant). Le total des parts doit être égal au nombre de membres, sinon Add reste désactivé.',
+       '<strong>✏️ Custom :</strong> saisissez des montants exacts par personne, ou passez en % et saisissez des pourcentages totalisant 100.'],
+      'Utilisez ✏️ pour modifier une dépense et ✕ pour la supprimer. Les montants qui ne correspondent pas au total ne sont pas enregistrés.'
+    ]},
+    {t:'🌍 Plusieurs devises', b:[
+      ['Choisissez n’importe quelle devise lors de l’ajout d’une dépense. L’encadré de taux affiche le taux du jour et le montant converti.',
+       'Chaque part est aussi affichée dans votre devise préférée.',
+       'Définissez votre devise préférée dans <strong>Mon profil</strong> (appuyez sur vos initiales, en haut à droite). Tous les totaux, soldes et règlements y sont affichés.',
+       'Les taux se mettent à jour automatiquement chaque jour.']
+    ]},
+    {t:'📊 Budget (Dépenses → Budget)', b:[
+      ['Affiche les dépenses par catégorie par rapport au budget prévu.',
+       'Les propriétaires et administrateurs appuient sur ✏️ à côté d’une catégorie pour définir son budget.',
+       'Les catégories sont gérées par l’administrateur (👑 Admin → Categories).']
+    ]},
+    {t:'🤝 Régler les comptes', b:[
+      ['<strong>Current Balances</strong> indique qui doit ou qui doit recevoir de l’argent après les paiements.',
+       '<strong>Payments to Make</strong> indique qui doit payer qui. Appuyez sur <em>Pay UPI</em> pour ouvrir votre appli UPI avec le montant déjà saisi.',
+       'Après un paiement, appuyez sur <em>Mark Paid</em> et saisissez le montant (total ou partiel). La liste se met à jour automatiquement.',
+       '<strong>Payment History</strong> liste tous les paiements enregistrés. Utilisez ↩️ Undo pour annuler une erreur.']
+    ]},
+    {t:'📝 Souvenirs', b:[
+      'Écrivez des notes ou des moments forts de l’histoire. Toutes les personnes ayant accès peuvent les lire. Vous pouvez modifier ou supprimer vos propres souvenirs.'
+    ]},
+    {t:'📤 Résumé et partage', b:[
+      ['L’onglet <strong>Summary</strong> affiche vos totaux pour toutes les histoires et une carte par histoire.',
+       'Appuyez sur <em>Export &amp; Share</em> sur une histoire pour :'],
+      ['<strong>Télécharger le CSV :</strong> rapport complet pour Excel ou Google Sheets.',
+       '<strong>Share as Text :</strong> message de règlement court pour WhatsApp, SMS ou e-mail.',
+       '<strong>Share with Pay UPI Buttons :</strong> page web avec des boutons de paiement UPI.']
+    ]},
+    {t:'👤 Mon profil', b:[
+      ['Appuyez sur vos initiales (en haut à droite) pour modifier votre nom et votre devise préférée.',
+       'Si vous changez votre nom, il est aussi mis à jour dans les histoires auxquelles vous participez.']
+    ]},
+    {t:'👑 Admin (administrateurs uniquement)', b:[
+      ['<strong>Users :</strong> validez les nouvelles inscriptions, bloquez ou débloquez des utilisateurs, nommez un administrateur ou supprimez un compte.',
+       '<strong>Stories :</strong> consultez toutes les histoires et supprimez-en.',
+       '<strong>Categories :</strong> ajoutez ou supprimez les catégories de dépenses disponibles pour tous.']
+    ]},
+    {t:'💡 Bon à savoir', b:[
+      ['L’application se met à jour automatiquement toutes les 10 secondes.',
+       'Changez d’histoire avec 🔀 et déconnectez-vous avec ⏏️.']
+    ]}
+  ]
+},kn: {
+  title:'ಬಳಕೆದಾರ ಮಾರ್ಗದರ್ಶಿ',
+  intro:'ಯಾವುದೇ ವಿಭಾಗವನ್ನು ತೆರೆಯಲು ಅದರ ಮೇಲೆ ಟ್ಯಾಪ್ ಮಾಡಿ. ಮೇಲಿನ ❓ ಐಕಾನ್ ಬಳಸಿ ಯಾವಾಗ ಬೇಕಾದರೂ ಇಲ್ಲಿಗೆ ಹಿಂತಿರುಗಿ.',
+  close:'ಅರ್ಥವಾಯಿತು',
+  sections:[
+    {t:'🚀 ಪ್ರಾರಂಭಿಸುವುದು', open:true, b:[
+      'ನಿಮ್ಮ ಹೆಸರು, ಇಮೇಲ್ ಮತ್ತು ಪಾಸ್‌ವರ್ಡ್ (6+ ಅಕ್ಷರಗಳು) ನೀಡಿ ನೋಂದಣಿ ಮಾಡಿ. ನಿಮ್ಮ ಇಮೇಲ್‌ಗೆ OTP ಕಳುಹಿಸಲಾಗುತ್ತದೆ; ಖಾತೆ ಸಕ್ರಿಯಗೊಳಿಸಲು ಅದನ್ನು ನಮೂದಿಸಿ.',
+      ['ಮೊದಲು ನೋಂದಣಿಯಾದ ಖಾತೆ <strong>ಅಡ್ಮಿನ್</strong> ಆಗುತ್ತದೆ.',
+       'ಪಾಸ್‌ವರ್ಡ್ ಮರೆತಿದ್ದೀರಾ? ಲಾಗಿನ್ ಪರದೆಯಲ್ಲಿ <strong>Forgot password</strong> ಬಳಸಿ ಮತ್ತು ಇಮೇಲ್‌ಗೆ ಬಂದ OTP ನಮೂದಿಸಿ.',
+       'ಲಾಗಿನ್ ಆದ ನಂತರ ಸ್ಟೋರಿ ಪರದೆ ಕಾಣಿಸುತ್ತದೆ. ಹೊಸ ಸ್ಟೋರಿ ರಚಿಸಿ ಅಥವಾ ಪಟ್ಟಿಯಿಂದ ಒಂದನ್ನು ತೆರೆಯಿರಿ.']
+    ]},
+    {t:'📖 ಸ್ಟೋರಿಗಳು', b:[
+      '<strong>ಸ್ಟೋರಿ</strong> ಎಂದರೆ ಹಂಚಿಕೊಂಡ ಖರ್ಚುಗಳ ಪ್ರವಾಸ ಅಥವಾ ಗುಂಪು, ಉದಾಹರಣೆಗೆ "ಗೋವಾ ಟ್ರಿಪ್ 2026".',
+      ['<strong>ರಚಿಸಿ:</strong> ಸ್ಟೋರಿ ಹೆಸರು, ಉದ್ದೇಶ ಮತ್ತು ಆರಂಭ ದಿನಾಂಕ ನಮೂದಿಸಿ, ನಂತರ <em>Start Story</em> ಒತ್ತಿ. ನೀವು ಅದರ ಮಾಲೀಕರಾಗುತ್ತೀರಿ.',
+       '<strong>ಬದಲಿಸಿ:</strong> ಮೇಲಿನ ಪಟ್ಟಿಯಲ್ಲಿ 🔀 ಒತ್ತಿ ಸ್ಟೋರಿ ಪಟ್ಟಿಗೆ ಹಿಂತಿರುಗಿ.',
+       '<strong>ಪ್ರವೇಶ ಹಂಚಿಕೆ:</strong> ಮಾಲೀಕರು 🔑 ಒತ್ತಿ ಇಮೇಲ್ ಅಥವಾ ಗುಂಪಿನ ಮೂಲಕ ಇತರ ನೋಂದಾಯಿತ ಬಳಕೆದಾರರಿಗೆ ಪ್ರವೇಶ ನೀಡಬಹುದು.',
+       '<strong>ಅಳಿಸಿ:</strong> ಮಾಲೀಕರು Expenses ಟ್ಯಾಬ್‌ನಲ್ಲಿರುವ 🗑️ ಬಟನ್ ಮೂಲಕ ಸ್ಟೋರಿಯನ್ನು ಅಳಿಸಬಹುದು.']
+    ]},
+    {t:'👥 ಫ್ರೆಂಡ್ಸ್ ಟ್ಯಾಬ್', b:[
+      ['<strong>ಸದಸ್ಯರು:</strong> ಹೆಸರಿನಿಂದ ವ್ಯಕ್ತಿಯನ್ನು ಸೇರಿಸಲು <em>+ Add Friend</em> ಒತ್ತಿ. ✕ ಮೂಲಕ ತೆಗೆಯಿರಿ (ಖರ್ಚುಗಳಿದ್ದರೆ ಸಾಧ್ಯವಿಲ್ಲ). ಸ್ಟೋರಿ ಮಾಲೀಕರನ್ನು ತೆಗೆಯಲಾಗದು.',
+       '<strong>Share</strong> ಪ್ರತಿಯೊಬ್ಬರ ಒಟ್ಟು ಪಾಲನ್ನು ತೋರಿಸುತ್ತದೆ. <strong>Gets back / Owes</strong> ಪಾವತಿಯ ನಂತರದ ಸ್ಥಿತಿಯನ್ನು ತೋರಿಸುತ್ತದೆ.',
+       '<strong>ನನ್ನ ಗುಂಪುಗಳು:</strong> ಇಮೇಲ್‌ಗಳ ಗುಂಪು ರಚಿಸಿ (ಉದಾ: ಕುಟುಂಬ) ಮತ್ತು <em>Grant Story Access</em> ಒತ್ತಿ ಎಲ್ಲರನ್ನೂ ಒಮ್ಮೆಗೇ ಸ್ಟೋರಿಗೆ ಸೇರಿಸಿ.']
+    ]},
+    {t:'💸 ಖರ್ಚು ಸೇರಿಸುವುದು', b:[
+      'ಖರ್ಚುಗಳ ಟ್ಯಾಬ್ ತೆರೆದು <strong>+ Add</strong> ಒತ್ತಿ. ಭರ್ತಿ ಮಾಡಿ:',
+      ['<strong>ವಿವರಣೆ</strong>, <strong>ಕರೆನ್ಸಿ</strong> ಮತ್ತು <strong>ಮೊತ್ತ</strong>.',
+       '<strong>ಯಾರು ಪಾವತಿಸಿದರು</strong>, ಐಚ್ಛಿಕ <strong>ವರ್ಗ</strong>, ಮತ್ತು <strong>ದಿನಾಂಕ / ಸಮಯ</strong>.',
+       '<strong>ಹಂಚಿಕೆ ಪ್ರಕಾರ:</strong> ಕೆಳಗಿನ ನಾಲ್ಕು ಬಟನ್‌ಗಳಲ್ಲಿ ಒಂದನ್ನು ಆರಿಸಿ.'],
+      ['<strong>⚖️ Equal:</strong> ಎಲ್ಲ ಸದಸ್ಯರ ನಡುವೆ ಸಮಾನವಾಗಿ ಹಂಚಿ.',
+       '<strong>👥 Exclude:</strong> ಸಮಾನವಾಗಿ ಹಂಚಿ, ಆದರೆ ಪಾವತಿಸಬಾರದವರ ಟಿಕ್ ತೆಗೆಯಿರಿ.',
+       '<strong>🧮 Share:</strong> ಪ್ರತಿಯೊಬ್ಬರಿಗೂ ವಿಭಿನ್ನ ಸಂಖ್ಯೆಯ ಪಾಲು ನೀಡಿ (ಉದಾ: ದಂಪತಿಗೆ 2, ಮಗುವಿಗೆ 1). ಒಟ್ಟು ಪಾಲುಗಳು ಸದಸ್ಯರ ಸಂಖ್ಯೆಗೆ ಸಮವಾಗಿರಬೇಕು, ಇಲ್ಲದಿದ್ದರೆ Add ನಿಷ್ಕ್ರಿಯವಾಗಿರುತ್ತದೆ.',
+       '<strong>✏️ Custom:</strong> ಪ್ರತಿಯೊಬ್ಬರಿಗೂ ನಿಖರ ಮೊತ್ತ ನಮೂದಿಸಿ, ಅಥವಾ % ಆರಿಸಿ 100 ಆಗುವಂತೆ ಶೇಕಡಾವಾರು ನಮೂದಿಸಿ.'],
+      'ಖರ್ಚು ತಿದ್ದಲು ✏️ ಮತ್ತು ಅಳಿಸಲು ✕ ಒತ್ತಿ. ಒಟ್ಟು ಮೊತ್ತಕ್ಕೆ ಸರಿಹೊಂದದ ಮೊತ್ತಗಳನ್ನು ಉಳಿಸಲಾಗುವುದಿಲ್ಲ.'
+    ]},
+    {t:'🌍 ಹಲವು ಕರೆನ್ಸಿಗಳು', b:[
+      ['ಖರ್ಚು ಸೇರಿಸುವಾಗ ಯಾವುದೇ ಕರೆನ್ಸಿ ಆರಿಸಿ. ದರ ಪೆಟ್ಟಿಗೆ ಇಂದಿನ ದರ ಮತ್ತು ಪರಿವರ್ತಿತ ಮೊತ್ತವನ್ನು ತೋರಿಸುತ್ತದೆ.',
+       'ಪ್ರತಿ ಪಾಲು ನಿಮ್ಮ ಆದ್ಯತೆಯ ಕರೆನ್ಸಿಯಲ್ಲಿಯೂ ತೋರಿಸಲಾಗುತ್ತದೆ.',
+       '<strong>My Profile</strong> (ಮೇಲ್ಭಾಗದಲ್ಲಿ ನಿಮ್ಮ ಅಕ್ಷರಗಳ ಮೇಲೆ ಒತ್ತಿ) ನಲ್ಲಿ ಆದ್ಯತೆಯ ಕರೆನ್ಸಿ ಹೊಂದಿಸಿ. ಎಲ್ಲ ಒಟ್ಟು, ಬಾಕಿ ಮತ್ತು ಪಾವತಿಗಳು ಅದರಲ್ಲೇ ತೋರಿಸಲಾಗುತ್ತವೆ.',
+       'ದರಗಳು ಪ್ರತಿದಿನ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ನವೀಕರಣಗೊಳ್ಳುತ್ತವೆ.']
+    ]},
+    {t:'📊 ಬಜೆಟ್ (Expenses → Budget)', b:[
+      ['ಯೋಜಿತ ಬಜೆಟ್‌ಗೆ ಹೋಲಿಸಿ ವರ್ಗವಾರು ಖರ್ಚು ತೋರಿಸುತ್ತದೆ.',
+       'ಮಾಲೀಕರು ಮತ್ತು ಅಡ್ಮಿನ್‌ಗಳು ವರ್ಗದ ಮೇಲಿನ ✏️ ಒತ್ತಿ ಬಜೆಟ್ ನಿಗದಿಪಡಿಸಬಹುದು.',
+       'ವರ್ಗಗಳನ್ನು ಅಡ್ಮಿನ್ ನಿರ್ವಹಿಸುತ್ತಾರೆ (👑 Admin → Categories).']
+    ]},
+    {t:'🤝 ಲೆಕ್ಕ ಚುಕ್ತಾ ಮಾಡಿ', b:[
+      ['<strong>Current Balances</strong> ಪಾವತಿಯ ನಂತರ ಯಾರಿಗೆ ಹಣ ಬರಬೇಕು ಅಥವಾ ಯಾರು ಕೊಡಬೇಕು ಎಂದು ತೋರಿಸುತ್ತದೆ.',
+       '<strong>Payments to Make</strong> ಯಾರು ಯಾರಿಗೆ ಪಾವತಿಸಬೇಕು ಎಂದು ತೋರಿಸುತ್ತದೆ. <em>Pay UPI</em> ಒತ್ತಿದರೆ ಮೊತ್ತ ತುಂಬಿದ UPI ಆ್ಯಪ್ ತೆರೆಯುತ್ತದೆ.',
+       'ಪಾವತಿಸಿದ ನಂತರ <em>Mark Paid</em> ಒತ್ತಿ ಮೊತ್ತ (ಪೂರ್ಣ ಅಥವಾ ಭಾಗಶಃ) ನಮೂದಿಸಿ. ಪಟ್ಟಿ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ನವೀಕರಣಗೊಳ್ಳುತ್ತದೆ.',
+       '<strong>Payment History</strong> ದಾಖಲಾದ ಎಲ್ಲ ಪಾವತಿಗಳನ್ನು ತೋರಿಸುತ್ತದೆ. ತಪ್ಪಾಗಿದ್ದರೆ ↩️ Undo ಬಳಸಿ.']
+    ]},
+    {t:'📝 ನೆನಪುಗಳು', b:[
+      'ಸ್ಟೋರಿಯ ಟಿಪ್ಪಣಿಗಳು ಅಥವಾ ನೆಚ್ಚಿನ ಕ್ಷಣಗಳನ್ನು ಬರೆಯಿರಿ. ಪ್ರವೇಶ ಇರುವ ಎಲ್ಲರೂ ಓದಬಹುದು. ನಿಮ್ಮ ಸ್ವಂತ ನೆನಪುಗಳನ್ನು ತಿದ್ದಬಹುದು ಅಥವಾ ಅಳಿಸಬಹುದು.'
+    ]},
+    {t:'📤 ಸಾರಾಂಶ ಮತ್ತು ಹಂಚಿಕೆ', b:[
+      ['<strong>Summary</strong> ಟ್ಯಾಬ್ ಎಲ್ಲ ಸ್ಟೋರಿಗಳ ಒಟ್ಟು ಲೆಕ್ಕ ಮತ್ತು ಪ್ರತಿ ಸ್ಟೋರಿಯ ಕಾರ್ಡ್ ತೋರಿಸುತ್ತದೆ.',
+       'ಸ್ಟೋರಿಯಲ್ಲಿ <em>Export &amp; Share</em> ಒತ್ತಿ:'],
+      ['<strong>CSV ಡೌನ್‌ಲೋಡ್:</strong> Excel ಅಥವಾ Google Sheets ಗಾಗಿ ಸಂಪೂರ್ಣ ವರದಿ.',
+       '<strong>Share as Text:</strong> WhatsApp, SMS ಅಥವಾ ಇಮೇಲ್‌ಗೆ ಸಂಕ್ಷಿಪ್ತ ಸಂದೇಶ.',
+       '<strong>Share with Pay UPI Buttons:</strong> ಟ್ಯಾಪ್ ಮಾಡಿ ಪಾವತಿಸುವ ಬಟನ್‌ಗಳಿರುವ ವೆಬ್ ಪುಟ.']
+    ]},
+    {t:'👤 ನನ್ನ ಪ್ರೊಫೈಲ್', b:[
+      ['ಮೇಲ್ಭಾಗದಲ್ಲಿ ನಿಮ್ಮ ಅಕ್ಷರಗಳ ಮೇಲೆ ಒತ್ತಿ ಹೆಸರು ಮತ್ತು ಆದ್ಯತೆಯ ಕರೆನ್ಸಿ ಬದಲಿಸಿ.',
+       'ಹೆಸರು ಬದಲಿಸಿದರೆ ನೀವು ಇರುವ ಸ್ಟೋರಿಗಳಲ್ಲಿಯೂ ಅದು ನವೀಕರಣಗೊಳ್ಳುತ್ತದೆ.']
+    ]},
+    {t:'👑 ಅಡ್ಮಿನ್ (ಅಡ್ಮಿನ್‌ಗಳಿಗೆ ಮಾತ್ರ)', b:[
+      ['<strong>Users:</strong> ಹೊಸ ಸೈನ್-ಅಪ್‌ಗಳನ್ನು ಪರಿಶೀಲಿಸಿ, ಬಳಕೆದಾರರನ್ನು ನಿರ್ಬಂಧಿಸಿ ಅಥವಾ ಅನಿರ್ಬಂಧಿಸಿ, ಯಾರನ್ನಾದರೂ ಅಡ್ಮಿನ್ ಮಾಡಿ, ಅಥವಾ ಖಾತೆ ಅಳಿಸಿ.',
+       '<strong>Stories:</strong> ಎಲ್ಲ ಸ್ಟೋರಿಗಳನ್ನು ನೋಡಿ ಯಾವುದನ್ನಾದರೂ ಅಳಿಸಿ.',
+       '<strong>Categories:</strong> ಎಲ್ಲರಿಗೂ ಲಭ್ಯವಿರುವ ಖರ್ಚು ವರ್ಗಗಳನ್ನು ಸೇರಿಸಿ ಅಥವಾ ತೆಗೆಯಿರಿ.']
+    ]},
+    {t:'💡 ತಿಳಿದಿರಲಿ', b:[
+      ['ಆ್ಯಪ್ ಪ್ರತಿ 10 ಸೆಕೆಂಡ್‌ಗೆ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ನವೀಕರಣಗೊಳ್ಳುತ್ತದೆ.',
+       'ಸ್ಟೋರಿ ಬದಲಿಸಲು 🔀 ಮತ್ತು ಲಾಗ್ ಔಟ್ ಆಗಲು ⏏️ ಒತ್ತಿ.']
+    ]}
+  ]
+}
+
+};
+
 function mGuide(){
-  var P=t=>`<p style="margin:0 0 6px">${t}</p>`;
+  var T=GUIDE_TEXT[guideLang]||GUIDE_TEXT.en;
+  var P=s=>`<p style="margin:0 0 6px">${s}</p>`;
   var UL=items=>`<ul style="margin:0 0 6px 18px;padding:0">${items.map(i=>`<li style="margin-bottom:3px">${i}</li>`).join('')}</ul>`;
-  var D=(title,body,open)=>`<details ${open?'open':''} style="border:2px solid #fed7aa;border-radius:10px;padding:9px 12px;margin-bottom:8px;background:white">
-    <summary style="font-weight:900;font-size:13px;color:#92400e;cursor:pointer">${title}</summary>
-    <div style="font-size:12px;color:#374151;line-height:1.55;margin-top:8px">${body}</div>
+  var body=sec=>sec.b.map(x=>Array.isArray(x)?UL(x):P(x)).join('');
+  var D=sec=>`<details ${sec.open?'open':''} style="border:2px solid #fed7aa;border-radius:10px;padding:9px 12px;margin-bottom:8px;background:white">
+    <summary style="font-weight:900;font-size:13px;color:#92400e;cursor:pointer">${sec.t}</summary>
+    <div style="font-size:12px;color:#374151;line-height:1.55;margin-top:8px">${body(sec)}</div>
   </details>`;
+  var langOpts=Object.entries(GUIDE_LANGS).map(([k,v])=>`<option value="${k}" ${k===guideLang?'selected':''}>${v}</option>`).join('');
 
   return `<div class="overlay" onclick="modal=null;render()">
     <div class="modal" onclick="event.stopPropagation()" style="max-width:480px">
-      <h3>❓ User Guide</h3>
-      <p style="font-size:11px;color:#6b7280;margin:-6px 0 12px">Tap a section to open it. Use the ❓ icon at the top anytime to come back here.</p>
-
-      ${D('🚀 Getting Started', `
-        ${UL([
-          'Register with your name, email and a password (6+ characters). An OTP is emailed to you; enter it to activate your account.',
-          'The first account registered becomes <strong>Admin</strong>.',
-          'Forgot your password? Use <strong>Forgot password</strong> on the login screen and enter the OTP sent to your email.',
-          'After login you land on the Story screen. Create a story or open one from the list.'
-        ])}`, true)}
-
-      ${D('📖 Stories', `
-        ${P('A <strong>story</strong> is a trip or group of shared expenses, for example "Goa Trip 2026".')}
-        ${UL([
-          '<strong>Create:</strong> enter a story name, purpose and start date, then tap <em>Start Story</em>. You become its owner.',
-          '<strong>Switch:</strong> tap 🔀 in the top ribbon to go back to the story list.',
-          '<strong>Share access:</strong> owners tap 🔑 to give other registered users access by email, or by a group.',
-          '<strong>Delete:</strong> owners can delete a story with the 🗑️ button in the Expenses tab.'
-        ])}`)}
-
-      ${D('👥 Friends Tab', `
-        ${UL([
-          '<strong>Members:</strong> tap <em>+ Add Friend</em> to add a person by name. Use ✕ to remove someone (not possible if they have expenses). The story owner cannot be removed.',
-          '<strong>Share</strong> shows each person’s total share of all expenses. <strong>Gets back / Owes</strong> shows where they stand after payments.',
-          '<strong>My Groups:</strong> create a group of emails (for example your family) and tap <em>Grant Story Access</em> to add them to this story in one go.'
-        ])}`)}
-
-      ${D('💸 Adding an Expense', `
-        ${P('Open the <strong>Expenses</strong> tab and tap <strong>+ Add</strong>. Fill in:')}
-        ${UL([
-          '<strong>Description</strong>, <strong>Currency</strong> and <strong>Amount</strong>.',
-          '<strong>Who Paid</strong>, optional <strong>Category</strong>, and <strong>Date / Time</strong>.',
-          '<strong>Split type:</strong> pick one of the four buttons below.'
-        ])}
-        ${UL([
-          '<strong>⚖️ Equal:</strong> split evenly among all members.',
-          '<strong>👥 Exclude:</strong> split evenly, but untick members who should not pay.',
-          '<strong>🧮 Share:</strong> give people different numbers of shares (for example 2 shares for a couple, 1 for a child). Total shares must equal the number of members, or Add is disabled.',
-          '<strong>✏️ Custom:</strong> enter exact amounts per person, or switch to % and enter percentages that add up to 100.'
-        ])}
-        ${P('Use ✏️ on an expense to edit it and ✕ to delete it. Amounts that do not add up to the total are not saved.')}`)}
-
-      ${D('🌍 Multiple Currencies', `
-        ${UL([
-          'Choose any currency when adding an expense. The rate box shows today’s rate and the converted total.',
-          'Each split is also shown in your preferred currency.',
-          'Set your preferred currency in <strong>My Profile</strong> (tap your initials, top right). All totals, balances and settlements are shown in it.',
-          'Rates update once a day automatically.'
-        ])}`)}
-
-      ${D('📊 Budget (Expenses → Budget)', `
-        ${UL([
-          'Shows spending per category against a planned budget.',
-          'Owners and admins tap ✏️ on a category to set its budget.',
-          'Categories are maintained by the admin (👑 Admin → Categories).'
-        ])}`)}
-
-      ${D('🤝 Settle Up', `
-        ${UL([
-          '<strong>Current Balances</strong> shows who is owed or owes money after payments.',
-          '<strong>Payments to Make</strong> lists who should pay whom. Tap <em>Pay UPI</em> to open your UPI app with the amount filled in.',
-          'After paying, tap <em>Mark Paid</em> and enter the amount (full or partial). The list updates automatically.',
-          '<strong>Payment History</strong> lists every recorded payment. Use ↩️ Undo to reverse a mistake.'
-        ])}`)}
-
-      ${D('📝 Memories', `
-        ${P('Write notes or favourite moments from the story. Everyone with access can read them. You can edit or delete your own memories.')}`)}
-
-      ${D('📤 Summary & Sharing', `
-        ${UL([
-          'The <strong>Summary</strong> tab shows your overall totals across all stories and a card per story.',
-          'Tap <em>Export &amp; Share</em> on a story to:',
-        ])}
-        ${UL([
-          '<strong>Download CSV</strong>: full report for Excel or Google Sheets.',
-          '<strong>Share as Text</strong>: a short settle-up message for WhatsApp, SMS or email.',
-          '<strong>Share with Pay UPI Buttons</strong>: a web page with tap-to-pay buttons.'
-        ])}`)}
-
-      ${D('👤 My Profile', `
-        ${UL([
-          'Tap your initials (top right) to change your display name and preferred currency.',
-          'Changing your name also updates it in the stories you are part of.'
-        ])}`)}
-
-      ${D('👑 Admin (admins only)', `
-        ${UL([
-          '<strong>Users:</strong> verify new sign-ups, ban or unban users, make someone admin, or delete an account.',
-          '<strong>Stories:</strong> see all stories and delete any of them.',
-          '<strong>Categories:</strong> add or remove the expense categories available to everyone.'
-        ])}`)}
-
-      ${D('💡 Good to Know', `
-        ${UL([
-          'The app syncs every 10 seconds. Tap 🔄 in the top ribbon to refresh immediately.',
-          'The sync status under the title shows when data was last saved or loaded.',
-          'Use 🔀 to switch stories and ⏏️ to log out.'
-        ])}`)}
-
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+        <h3 style="margin:0">❓ ${T.title}</h3>
+        <select onchange="setGuideLang(this.value)" style="border:2px solid #fed7aa;border-radius:8px;padding:5px 8px;font-size:12px;font-weight:700;color:#92400e;background:white;outline:none;font-family:inherit">${langOpts}</select>
+      </div>
+      <p style="font-size:11px;color:#6b7280;margin:0 0 12px">${T.intro}</p>
+      ${T.sections.map(D).join('')}
       <div class="mbtns" style="margin-top:6px">
-        <button class="btn primary" onclick="modal=null;render()">Got it</button>
+        <button class="btn primary" onclick="modal=null;render()">${T.close}</button>
       </div>
     </div>
   </div>`;
