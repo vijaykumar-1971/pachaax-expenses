@@ -1550,19 +1550,18 @@ function render(){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="min-width:0;flex:1;overflow:hidden">
         <h1 style="font-size:17px;font-weight:900;line-height:1.2;white-space:nowrap;color:white">💰 Expense &amp; Settle</h1>
-        <p id="sync" style="font-size:10px;color:#fef3c7;margin-top:2px;min-height:14px">${syncing?'☁️ Syncing...':lastSync?'✅ '+lastSync:''}</p>
-        ${tripLabel?`<p style="font-size:11px;color:#fef3c7;font-weight:700;margin-top:2px;line-height:1.35;word-break:break-word;white-space:normal">📖 ${tripLabel}${tripDate?' · '+tripDate:''}</p>`:''}
+        ${tripLabel?`<p style="font-size:11px;color:#fef3c7;font-weight:700;margin-top:2px;line-height:1.35;word-break:break-word;white-space:normal">📖 ${tripLabel}</p>`:''}
+        ${tripLabel&&tripDate?`<p style="font-size:10px;color:#fef3c7;margin-top:1px;line-height:1.35">📅 ${tripDate}</p>`:''}
       </div>
       <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div style="display:flex;gap:4px;align-items:center">
-          <button class="rbtn" onclick="loadTrip()" title="Refresh">🔄</button>
+          <button onclick="modal='guide';render()" title="User Guide"
+            style="width:26px;height:26px;border-radius:50%;background:white;color:#c2410c;font-size:13px;font-weight:900;flex-shrink:0;display:flex;align-items:center;justify-content:center;border:none;box-shadow:0 1px 4px rgba(0,0,0,0.25)">❓</button>
           ${owner?`<button class="rbtn" onclick="modal='access';render()" title="Manage Access">🔑</button>`:''}
           <button class="rbtn" onclick="doSwitchTrip()" title="Switch Story">🔀</button>
           <button class="rbtn" onclick="doLogout()" title="Logout">⏏️</button>
         </div>
         <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
-          <button onclick="modal='guide';render()" title="User Guide"
-            style="width:30px;height:30px;border-radius:50%;background:white;color:#c2410c;font-size:15px;font-weight:900;flex-shrink:0;display:flex;align-items:center;justify-content:center;border:none;box-shadow:0 1px 4px rgba(0,0,0,0.25)">❓</button>
           <div style="text-align:right">
             <div style="font-size:10px;font-weight:700;color:#fef3c7;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentUser.displayName}</div>
             <div style="font-size:9px;color:rgba(255,255,255,0.65)">${isAdmin?'👑 Admin':'👤 User'}</div>
