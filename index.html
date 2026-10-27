@@ -677,7 +677,7 @@ async function doResetPassword(){
 
 function doLogout(){
   warnConfirm('You will be logged out.', function(){
-    currentUser=null; localStorage.removeItem('px-user');
+    currentUser=null; localStorage.removeItem('px-user'); guideLang='en';
     tripId=''; localStorage.removeItem('px-trip');
     db={friends:[],expenses:[],settlements:[],meta:{}}; trips=[]; authMode='login'; authErr=''; authOk=''; render();
   }, 'Log Out', false);
@@ -2716,9 +2716,9 @@ function tabMemories(){
 }
 
 // ============ USER GUIDE (multilingual) ============
-var guideLang = localStorage.getItem('px-guide-lang') || 'en';
+var guideLang = 'en'; // always English at the start of each session
 var GUIDE_LANGS = {en:'English', hi:'हिन्दी', es:'Español', fr:'Français', kn:'ಕನ್ನಡ', ta:"தமிழ்", te:"తెలుగు", mr:"मराठी", bn:"বাংলা", ml:"മലയാളം", gu:"ગુજરાતી"};
-function setGuideLang(l){ guideLang=l; localStorage.setItem('px-guide-lang', l); render(); }
+function setGuideLang(l){ guideLang=l; render(); } // session only, not remembered
 
 var GUIDE_TEXT = {
 en: {
